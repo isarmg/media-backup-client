@@ -68,7 +68,7 @@ class BackupWorker(context: Context, parameters: WorkerParameters) : CoroutineWo
                 applicationContext.getDatabasePath(MobileContractV02.DATABASE_FILENAME).absolutePath,
                 nativeConfig.toString(),
             )
-            if (handle == 0L) error("无法打开 Rust Agent")
+            if (handle == 0L) error("无法打开 Rust Client")
             try {
                 val stagingRoot = File(
                     applicationContext.filesDir,

@@ -8,5 +8,5 @@ license.workspace = true
 
 [dependencies]
 blake3.workspace = true
-media-backup-protocol = { path = "../protocol" }
+media-backup-protocol = { git = "https://github.com/isarmg/media-backup-server.git", rev = "92ad37c4c771c38dcd0d3bbe722d4f94f18bfbe7", version = "=0.3.0" }
 thiserror.workspace = true

@@ -24,20 +24,7 @@ jobs:
         with:
           toolchain: 1.98.0
           components: rustfmt,clippy
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .node-version
-          cache: npm
-          cache-dependency-path: clients/web/package-lock.json
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      - run: npm ci --prefix clients/web
-      - run: npm run build --prefix clients/web
-      - name: Install browser acceptance engines
-        working-directory: clients/web
-        run: npx playwright install --with-deps chromium firefox
-      - name: Verify current administrator and backup Web flows
-        working-directory: clients/web
-        run: node tests/browser-acceptance.mjs
       - run: ./scripts/check-mobile-v02-contract.sh
       - run: ./scripts/check-workflow-supply-chain.sh
       - run: cargo fmt --all -- --check
@@ -45,13 +32,6 @@ jobs:
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked
       - run: bash scripts/test-mobile-ffi-c.sh
-      - name: Build and test the real server release archive
-        run: |
-          revision="$(git rev-parse HEAD)"
-          MEDIA_BACKUP_SOURCE_REVISION="$revision" cargo build --release --locked -p media-backup-server --target x86_64-unknown-linux-gnu
-          mkdir -p "$PWD/dist"
-          archive="$(./scripts/build-server-release.sh "$PWD/target/x86_64-unknown-linux-gnu/release/media-backup-server" "$revision" "$PWD/dist")"
-          MEDIA_BACKUP_VERIFY_SYSTEMD=1 ./scripts/test-deployment.sh "$archive"
 
   android:
     name: Android APK

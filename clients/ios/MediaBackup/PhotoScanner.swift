@@ -39,7 +39,7 @@ struct PhotoScanner {
         return result.sorted { $0.count == $1.count ? $0.name < $1.name : $0.count > $1.count }
     }
 
-    func scan(agent: RustAgent, stagingRoot: URL, selectedAlbumIds: Set<String>) async throws -> PhotoScanResult {
+    func scan(client: RustClient, stagingRoot: URL, selectedAlbumIds: Set<String>) async throws -> PhotoScanResult {
         let sourceRoot = stagingRoot.appendingPathComponent("sources", isDirectory: true)
         try FileManager.default.createDirectory(at: sourceRoot, withIntermediateDirectories: true)
         let available = albums()
@@ -74,11 +74,11 @@ struct PhotoScanner {
             ])
             for resource in PHAssetResource.assetResources(for: asset) {
                 let resourceId = "\(resource.type.rawValue):\(resource.originalFilename)"
-                guard try agent.needs(asset: asset.localIdentifier, resource: resourceId, modifiedMs: modifiedMs) else { continue }
+                guard try client.needs(asset: asset.localIdentifier, resource: resourceId, modifiedMs: modifiedMs) else { continue }
                 let output = sourceRoot.appendingPathComponent(UUID().uuidString)
                 try await export(resource, to: output)
                 let size = ((try FileManager.default.attributesOfItem(atPath: output.path)[.size]) as? NSNumber)?.uint64Value ?? 0
-                try agent.enqueue(EnqueueInput(
+                try client.enqueue(EnqueueInput(
                     product: MobileContractV02.product,
                     applicationVersion: MobileContractV02.applicationVersion,
                     revision: MobileContractV02.revision,
@@ -99,11 +99,11 @@ struct PhotoScanner {
                 queued += 1
             }
             let thumbnailId = "\(asset.localIdentifier)#thumbnail-v1"
-            if try agent.needs(asset: asset.localIdentifier, resource: thumbnailId, modifiedMs: modifiedMs),
+            if try client.needs(asset: asset.localIdentifier, resource: thumbnailId, modifiedMs: modifiedMs),
                let thumbnail = try await thumbnail(for: asset) {
                 let output = sourceRoot.appendingPathComponent("\(UUID().uuidString).thumbnail.jpg")
                 try thumbnail.write(to: output, options: .atomic)
-                try agent.enqueue(EnqueueInput(
+                try client.enqueue(EnqueueInput(
                     product: MobileContractV02.product,
                     applicationVersion: MobileContractV02.applicationVersion,
                     revision: MobileContractV02.revision,

@@ -2,7 +2,7 @@
 
 ## Rust workspace 的依赖方向
 
-允许方向大致为 `protocol <- crypto <- agent-core/mobile-ffi`，服务端组合 protocol/crypto。共享 crate 不
+允许方向大致为 `protocol <- crypto <- client-core/mobile-ffi`，服务端组合 protocol/crypto。共享 crate 不
 应反向依赖 Android、iOS 或 server。循环依赖通常意味着职责放错。
 
 Rust 中 `Result<T, E>` 表示可恢复失败；`?` 传播错误并保留 context。处理外部输入时不要 `unwrap`。
@@ -24,7 +24,7 @@ Keystore。JNI 方法只接收严格 JSON 和路径，不应在 Rust 中偷偷�
 ## iOS 宿主职责
 
 Swift 拥有 PhotoKit authorization、SwiftUI 状态、Keychain、BGTask/URLSession delegate 与系统照片库
-写入。FFI handle 的生命周期由 `RustAgent` 封装，C 字符串必须由匹配的 current free 函数释放。
+写入。FFI handle 的生命周期由 `RustClient` 封装，C 字符串必须由匹配的 current free 函数释放。
 
 Swift continuation 只能 resume 一次；后台 delegate、取消和进程恢复必须汇入同一状态机，不能在多个
 回调重复提交。

@@ -22,7 +22,7 @@ trim ASCII whitespace 与 ASCII lowercase 后必须是 3–64 bytes、首尾字�
 `/api/v2/admin/*`，都要求同源、
 有效 Session 和与该 Session 绑定的 CSRF token。
 
-这套管理合同只由 Server 与内置 React/Vite Web 消费。移动 `/v2` DTO、设备 Token/API Key、Agent
+这套管理合同只由 Server 与内置 React/Vite Web 消费。移动 `/v2` DTO、设备 Token/API Key、Client
 Schema、Android/iOS 和 FFI 仍使用原有数据面身份；协议修改时不得机械地把它们替换成管理 username。
 
 失败响应不使用产品私有 `{error}`。服务端直接序列化 `sarmg-error=0.3.0` 的 Foundation ErrorEnvelope 顶层
@@ -37,9 +37,9 @@ Schema、Android/iOS 和 FFI 仍使用原有数据面身份；协议修改时不
 ```json
 {
   "product": "media-backup",
-  "application_version": "0.2.1",
+  "application_version": "0.3.0",
   "revision": 1,
-  "state_epoch": "media-backup-mobile-v0.2-r2"
+  "state_epoch": "media-backup-mobile-v0.3-r1"
 }
 ```
 

@@ -57,7 +57,7 @@ pub extern "system" fn Java_org_sarmg_mediabackup_NativeBridgeV2_needs(
     guard(&mut env, 0, |env| {
         let asset = read_string(env, asset, MAX_IDENTIFIER_BYTES)?;
         let resource = read_string(env, resource, MAX_IDENTIFIER_BYTES)?;
-        with_agent(handle as u64, |a| {
+        with_client(handle as u64, |a| {
             a.needs_resource(&asset, &resource, modified_ms)
                 .map_err(internal)
         })
@@ -99,7 +99,7 @@ pub extern "system" fn Java_org_sarmg_mediabackup_NativeBridgeV2_markUpload(
     guard(&mut env, std::ptr::null_mut(), |env| {
         let job = read_string(env, job, MAX_IDENTIFIER_BYTES)?;
         let upload = read_string(env, upload, MAX_IDENTIFIER_BYTES)?;
-        with_agent(handle as u64, |a| {
+        with_client(handle as u64, |a| {
             a.mark_upload(&job, &upload).map_err(internal)
         })?;
         new_string(env, envelope(Value::Null)?)
@@ -116,7 +116,7 @@ pub extern "system" fn Java_org_sarmg_mediabackup_NativeBridgeV2_markPart(
     guard(&mut env, std::ptr::null_mut(), |env| {
         let index = u32::try_from(index).map_err(|_| FfiError::invalid_argument())?;
         let job = read_string(env, job, MAX_IDENTIFIER_BYTES)?;
-        with_agent(handle as u64, |a| {
+        with_client(handle as u64, |a| {
             a.mark_part_uploaded(&job, index).map_err(internal)
         })?;
         new_string(env, envelope(Value::Null)?)
@@ -131,7 +131,7 @@ pub extern "system" fn Java_org_sarmg_mediabackup_NativeBridgeV2_markComplete(
 ) -> jstring {
     guard(&mut env, std::ptr::null_mut(), |env| {
         let job = read_string(env, job, MAX_IDENTIFIER_BYTES)?;
-        with_agent(handle as u64, |a| a.mark_complete(&job).map_err(internal))?;
+        with_client(handle as u64, |a| a.mark_complete(&job).map_err(internal))?;
         new_string(env, envelope(Value::Null)?)
     })
 }
@@ -150,7 +150,7 @@ pub extern "system" fn Java_org_sarmg_mediabackup_NativeBridgeV2_markFailed(
         }
         let job = read_string(env, job, MAX_IDENTIFIER_BYTES)?;
         let message = read_string(env, message, ffi::MAX_INPUT_BYTES)?;
-        with_agent(handle as u64, |a| {
+        with_client(handle as u64, |a| {
             a.mark_failed(&job, &message, retryable == 1)
                 .map_err(internal)
         })?;

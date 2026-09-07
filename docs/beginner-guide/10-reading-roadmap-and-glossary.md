@@ -14,7 +14,7 @@ rename、transaction 和 crash point。
 
 ### 第三周：移动端
 
-读 agent-core Schema/job、mobile-ffi、Android Worker、iOS Coordinator。画出系统终止后恢复路径，运行
+读 client-core Schema/job、mobile-ffi、Android Worker、iOS Coordinator。画出系统终止后恢复路径，运行
 epoch gate，并证明旧命名空间不会被读取。
 
 ### 第四周：发布与运维

@@ -22,8 +22,8 @@ Media Backup 解决的是“手机原始照片和视频可靠上传到自有服�
 完整的社交图库，也不是零知识加密系统。TLS 保护网络传输，服务端最终保存原始明文字节，因此服务器
 和数据卷管理员能够读取媒体；生产安全依赖主机权限、磁盘加密、TLS 和可靠备份。
 
-项目坚持当前版本边界：`0.2.1` 服务端、移动 `/v2` API、浏览器管理 `/api/v2` API、`plain-v1` 存储和
-`media-backup-mobile-v0.2-r2` 移动合约构成一个不可拆分的版本身份。发现非当前状态时产品必须只读拒绝，
+项目坚持当前版本边界：`0.3.0` 服务端、移动 `/v2` API、浏览器管理 `/api/v2` API、`plain-v1` 存储和
+`media-backup-mobile-v0.3-r1` 移动合约构成一个不可拆分的版本身份。发现非当前状态时产品必须只读拒绝，
 不能猜测或转换。
 
 ## 2. 认识四层架构
@@ -32,7 +32,7 @@ Media Backup 解决的是“手机原始照片和视频可靠上传到自有服�
 系统照片库
   └─ Android MediaStore / iOS PhotoKit
        └─ 原生 UI、权限、后台调度、安全凭据存储
-            └─ mobile-ffi + agent-core 本地队列
+            └─ mobile-ffi + client-core 本地队列
                  └─ HTTPS /v2 API
                       └─ Axum 服务端
                            ├─ SQLite 元数据
@@ -69,7 +69,7 @@ Xcode、XcodeGen，以及 `aarch64-apple-ios`、`aarch64-apple-ios-sim` Rust tar
 3. `admin.rs`、`auth.rs`、`login_admission.rs`、`api_access.rs`、`metrics.rs`：理解 Administrator、device、
    API Key 与 metrics 四条身份边界。
 4. `storage.rs`、`upload_commit.rs`、`rooted_fs.rs`：理解文件如何安全落盘。
-5. `agent-core/src/database.rs`：理解移动队列和本地当前 Schema。
+5. `client-core/src/database.rs`：理解移动队列和本地当前 Schema。
 6. Android 的 `BackupWorker.kt`、iOS 的 `BackupCoordinator.swift`：理解宿主调度。
 7. 两端 `RemoteLibrary`、相册扫描器与 UI：理解恢复和图库操作。
 
@@ -130,5 +130,5 @@ Schema、元数据指纹和所有新库测试，不在产品里添加 migration�
 - **CSRF**：浏览器 Cookie 会话的跨站请求伪造防护。
 - **FFI/JNI**：Rust 与 Swift/Kotlin 之间的调用边界。
 - **WAL**：SQLite Write-Ahead Log；数据库一致性副本必须考虑其 sidecar。
-- **epoch**：不兼容合约代，本项目移动端当前值为 `media-backup-mobile-v0.2-r2`。
+- **epoch**：不兼容合约代，本项目移动端当前值为 `media-backup-mobile-v0.3-r1`。
 - **fail closed**：无法证明输入安全或身份精确匹配时拒绝处理。

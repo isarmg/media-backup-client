@@ -1,6 +1,6 @@
 # Media Backup 完整功能与取舍清单
 
-本文按 Media Backup `0.2.1` 当前工作树盘点 Server、React 管理 Web、共享 Rust Agent、Android、iOS、
+本文按 Media Backup `0.3.0` 当前工作树盘点 Server、React 管理 Web、共享 Rust Client、Android、iOS、
 协议、存储和交付闭包。代码、两个 `current_schema.sql`、移动 epoch、FFI header 和发行 manifest 是最终
 事实源；本文不把规划中的能力写成已实现功能。
 
@@ -45,8 +45,8 @@ React 管理页、配置与 systemd、发行 identity/manifest、CI/脚本、正
 | MED-P-001 | Android/iOS 把授权范围内的照片、视频和设备生成缩略图备份到自托管 Server | `clients/android`、`clients/ios`、`crates/server` | 核心 | 高 | 项目不再是完整移动媒体备份系统 | 两平台至少一条原始媒体+缩略图端到端 |
 | MED-P-002 | Server 唯一支持 `x86_64-unknown-linux-gnu`，正式主机唯一为 Linux AMD64 | `sarmg-server-target`、server `build.rs`、release/systemd/scripts | 保障 | 高 | 会产生未经验证的 Server 平台制品 | 非目标编译、错误 ELF、错误 uname、systemd architecture |
 | MED-P-003 | Android/iOS 客户端继续按各自平台架构构建；“Server 仅 AMD64”不限制移动 ABI | Android NDK targets、Apple targets | 核心 | 高 | 若误删移动架构，真机无法加载 Rust core | arm64 Android/iOS；模拟器；ABI/header 一致 |
-| MED-P-004 | Server、移动 Agent 和发行物只理解一个当前 `0.2.1` 身份 | metadata、mobile epoch、release identity | 保障 | 高 | 多代 parser 会扩大每次变更的状态矩阵 | 非当前 product/version/revision/epoch 零写入拒绝 |
-| MED-P-005 | 产品不内置迁移、备份或恢复数据库命令；代际任务属于 `sarmg-upgrade` | Server CLI、Agent open path | 保障 | 高 | 在线转换会把未知状态带入服务进程 | CLI 清单；Schema mismatch 只读失败 |
+| MED-P-004 | Server、移动 Client 和发行物只理解一个当前 `0.3.0` 身份 | metadata、mobile epoch、release identity | 保障 | 高 | 多代 parser 会扩大每次变更的状态矩阵 | 非当前 product/version/revision/epoch 零写入拒绝 |
+| MED-P-005 | 产品不内置迁移、备份或恢复数据库命令；代际任务属于 `sarmg-upgrade` | Server CLI、Client open path | 保障 | 高 | 在线转换会把未知状态带入服务进程 | CLI 清单；Schema mismatch 只读失败 |
 | MED-P-006 | 源配置统一位于顶层 `config/`，部署资产位于 `deploy/`，客户端位于 `clients/` | 仓库目录 | 开发运维 | 低 | 事实源散落，脚本和文档容易引用不同文件 | `rg` 不引用已移除目录；release 仍可重映射到 `systemd/` |
 | MED-P-007 | React/Vite 管理客户端位于 `clients/web/`；Android/iOS 原生客户端并列 | 目录结构、workspace scripts | 开发运维 | 低 | 客户端代码位置不一致，维护人员难以识别边界 | README、CI、构建脚本使用统一路径 |
 | MED-P-008 | 原始媒体在 Server 使用 `plain-v1` 明文字节，传输机密性依赖 HTTPS | `StorageEncoding::PlainV1`、`crates/crypto` | 核心 | 高 | 改成端到端密文会重写缩略图、恢复、去重和密钥生命周期 | byte-for-byte round trip；HTTP 明文直连不得公网暴露 |
@@ -122,26 +122,26 @@ React 管理页、配置与 systemd、发行 identity/manifest、CI/脚本、正
 | MED-L-012 | audit_events 使用 account sequence，记录 device/API key 动作但不保存 token/媒体正文 | `audit.rs`、`api_access::audit_events` | 建议保留 | 中 | 数据面操作难追踪 | actor kind/id、limit 1–500、敏感字段负例 |
 | MED-L-013 | device/API key 成功使用最多每 5 分钟更新 last_seen/last_used，避免每请求写放大 | `auth::require_auth` | 保障 | 中 | 每请求写会放大 SQLite 争用；完全不写则失去活跃性 | 5 分钟边界、失败请求不 touch |
 
-## 6. 共享 Rust Agent、移动状态与 FFI
+## 6. 共享 Rust Client、移动状态与 FFI
 
 | ID | 当前功能/特性与真实行为 | 实现/代码锚点 | 分类 | 复杂度 | 删除后的确定后果 | 最低验证/边界 |
 |---|---|---|---|---|---|---|
-| MED-G-001 | Android/iOS 共用 `crates/agent-core` 的发现、准备、上传、重试和完成状态机 | `Agent`、`jobs`/`job_parts` | 核心 | 高 | 两端各自实现队列，故障语义快速漂移 | 同 fixture 两平台；Rust state transition tests |
-| MED-G-002 | Agent config、enqueue、prepared job 都显式携带 product/version/revision/state_epoch | `AgentConfig`、`EnqueueResource`、`PreparedJob` | 保障 | 高 | 非当前宿主或持久 JSON 可被误读 | 每个 identity 字段缺失/错误/额外字段 |
-| MED-G-003 | 移动状态固定 `media-backup-mobile-v0.2-r2`、`agent-v0.2-r2.sqlite`、`backup-staging-v0.2-r2` | Agent constants、Kotlin/Swift contract | 保障 | 高 | 数据库、stage 和 ABI 可能混代 | Rust/Kotlin/Swift/脚本静态合同一致 |
-| MED-G-004 | Agent 数据库只在文件不存在时创建当前 Schema；现场 DDL fingerprint 精确验证 | `agent-core/database.rs` | 保障 | 高 | 非当前队列可能在设备上被自动改写 | empty/wrong metadata/extra table/WAL 零写拒绝 |
-| MED-G-005 | Agent open 验证所有 persisted `prepared_json` 当前身份后恢复 interrupted 状态 | `Agent::open`、`validate_persisted_jobs` | 保障 | 高 | 重启后 preparing/uploading 永久卡住，或坏 JSON 懒到上传时才暴露 | ready/uploading/preparing 有/无 prepared JSON |
+| MED-G-001 | Android/iOS 共用 `crates/client-core` 的发现、准备、上传、重试和完成状态机 | `Client`、`jobs`/`job_parts` | 核心 | 高 | 两端各自实现队列，故障语义快速漂移 | 同 fixture 两平台；Rust state transition tests |
+| MED-G-002 | Client config、enqueue、prepared job 都显式携带 product/version/revision/state_epoch | `ClientConfig`、`EnqueueResource`、`PreparedJob` | 保障 | 高 | 非当前宿主或持久 JSON 可被误读 | 每个 identity 字段缺失/错误/额外字段 |
+| MED-G-003 | 移动状态固定 `media-backup-mobile-v0.3-r1`、`client-v0.3-r1.sqlite`、`backup-staging-v0.3-r1` | Client constants、Kotlin/Swift contract | 保障 | 高 | 数据库、stage 和 ABI 可能混代 | Rust/Kotlin/Swift/脚本静态合同一致 |
+| MED-G-004 | Client 数据库只在文件不存在时创建当前 Schema；现场 DDL fingerprint 精确验证 | `client-core/database.rs` | 保障 | 高 | 非当前队列可能在设备上被自动改写 | empty/wrong metadata/extra table/WAL 零写拒绝 |
+| MED-G-005 | Client open 验证所有 persisted `prepared_json` 当前身份后恢复 interrupted 状态 | `Client::open`、`validate_persisted_jobs` | 保障 | 高 | 重启后 preparing/uploading 永久卡住，或坏 JSON 懒到上传时才暴露 | ready/uploading/preparing 有/无 prepared JSON |
 | MED-G-006 | `(source_asset_id,source_resource_id)` 唯一；完成且 modified_ms 相同则无需重入队 | `needs_resource`、jobs unique | 核心 | 高 | 每次扫描都重传，或修改后的媒体被错误跳过 | unchanged/changed size/time、非 complete |
-| MED-G-007 | enqueue 更新已有 job 时清除 prepared/upload/retry/error，回到 discovered | `Agent::enqueue` upsert | 保障 | 高 | 新字节可能沿用旧 parts/upload ID | 修改后 state、part rows/JSON、重启 |
-| MED-G-008 | `next_prepared` 会复用 `ready` 的持久 `prepared_json`，再在进程内 Mutex 下领取一个 `discovered` 或到期的 `retry_wait` job；当前没有跨进程 Agent 锁 | `Agent::next_prepared` | 保障 | 高 | 删除 ready 复用会在每次宿主轮询时重复读取并分块；误称跨进程安全会掩盖重复准备风险 | ready 重取、双线程调用、两个进程边界、空队列、retry time |
+| MED-G-007 | enqueue 更新已有 job 时清除 prepared/upload/retry/error，回到 discovered | `Client::enqueue` upsert | 保障 | 高 | 新字节可能沿用旧 parts/upload ID | 修改后 state、part rows/JSON、重启 |
+| MED-G-008 | `next_prepared` 会复用 `ready` 的持久 `prepared_json`，再在进程内 Mutex 下领取一个 `discovered` 或到期的 `retry_wait` job；当前没有跨进程 Client 锁 | `Client::next_prepared` | 保障 | 高 | 删除 ready 复用会在每次宿主轮询时重复读取并分块；误称跨进程安全会掩盖重复准备风险 | ready 重取、双线程调用、两个进程边界、空队列、retry time |
 | MED-G-009 | `prepare_file` 分块同时计算 part/full BLAKE3，每个 part 写完 `sync_all` | `crates/crypto/src/lib.rs` | 核心 | 高 | 无法续传或证明上传前字节身份 | 空文件、跨 part、I/O failure、Hash fixture |
 | MED-G-010 | 宿主导出的临时源在 parts 准备成功并持久化 prepared JSON 后才 best-effort 删除 | `remove_source_after_prepare` | 保障 | 高 | 删除过早会丢唯一临时副本；不删会持续占设备空间 | prepare 失败/成功、删除失败、原始系统媒体永不标记删除 |
-| MED-G-011 | mark_upload/part/complete 持久化远端进度；complete 清理本地 prepared parts | Agent methods、`job_parts` | 保障 | 高 | 重启后无法续传或 stage 永久累积 | 每状态重启、part cleanup、missing job |
+| MED-G-011 | mark_upload/part/complete 持久化远端进度；complete 清理本地 prepared parts | Client methods、`job_parts` | 保障 | 高 | 重启后无法续传或 stage 永久累积 | 每状态重启、part cleanup、missing job |
 | MED-G-012 | retryable error 使用 2 秒指数退避、最多 1 小时并保留 `prepared_json`；非 retryable 进入 failed | `mark_failed` | 保障 | 中 | 网络故障会热循环，或永久失败与暂时失败无法区分 | retry count 0/10+、到期前后、JSON/part 是否仍在、错误摘要；保留 JSON 不代表当前取队列路径会复用它 |
-| MED-G-013 | Agent stats 聚合 discovered/ready/uploading/complete/retry_wait/failed | `AgentStats` | 建议保留 | 低 | UI 和诊断无法说明队列停在哪层 | 每状态计数、未知状态由 Schema 阻止 |
-| MED-G-014 | 唯一 C ABI 2 使用显式长度、状态码和 owned result；JNI 通过共享边界抛出异常；旧入口已删除 | `mobile-ffi`、生成 Header、NativeBridgeV2/RustAgent | 核心 | 高 | 原生宿主无法区分失败或产生跨 allocator 内存错误 | 全导出 C 调用、null/UTF-8、结果释放、JNI 异常及原生验收 |
+| MED-G-013 | Client stats 聚合 discovered/ready/uploading/complete/retry_wait/failed | `ClientStats` | 建议保留 | 低 | UI 和诊断无法说明队列停在哪层 | 每状态计数、未知状态由 Schema 阻止 |
+| MED-G-014 | 唯一 C ABI 2 使用显式长度、状态码和 owned result；JNI 通过共享边界抛出异常；旧入口已删除 | `mobile-ffi`、生成 Header、NativeBridgeV2/RustClient | 核心 | 高 | 原生宿主无法区分失败或产生跨 allocator 内存错误 | 全导出 C 调用、null/UTF-8、结果释放、JNI 异常及原生验收 |
 | MED-G-015 | 宿主先检查 ABI 2，成功业务 JSON 再验证当前 identity；失败不包装成成功 envelope | `sarmg-mobile-ffi`、`MobileContractV02` | 保障 | 高 | Swift/Kotlin 可能接受错误 native library 的返回值 | ABI/version/revision/epoch、明确状态、额外/缺失 keys |
-| MED-G-016 | FFI handle registry 管理 Agent 生命周期，close 后句柄不可复用 | `mobile-ffi/src/lib.rs` | 保障 | 高 | use-after-close、重复 close 或跨线程状态损坏 | invalid/closed handle、并发调用、资源释放 |
+| MED-G-016 | FFI handle registry 管理 Client 生命周期，close 后句柄不可复用 | `mobile-ffi/src/lib.rs` | 保障 | 高 | use-after-close、重复 close 或跨线程状态损坏 | invalid/closed handle、并发调用、资源释放 |
 
 ## 7. Android 客户端
 
@@ -152,13 +152,13 @@ React 管理页、配置与 systemd、发行 identity/manifest、CI/脚本、正
 | MED-D-003 | endpoint、username 或 password 改变时立即删除现有 bearer token | `SecureConfig` setters | 保障 | 中 | 新身份可能继续带旧设备 Token 请求 | 三字段各自变化/不变、token 清除 |
 | MED-D-004 | 支持照片/视频开关、camera-only 或显式相册选择 | `ScanOptions`、`DeviceAlbums`、Compose | 核心 | 中 | 无法控制备份范围或会扫描全部授权库 | 空选择、首次默认、照片/视频组合、相册删除 |
 | MED-D-005 | Android 13/14 区分 image/video/selected media 权限，低版本使用 READ_EXTERNAL_STORAGE | `BackupWorker::hasMediaAccess`、Manifest | 保障 | 高 | 部分系统无权扫描或错误宣称拥有全部媒体 | API levels、partial access、拒绝后 UI |
-| MED-D-006 | MediaStore 扫描按修改状态入 Agent，并导出原始资源和设备缩略图 | `MediaScanner.kt` | 核心 | 高 | Android 无媒体输入或无快速预览资源 | photo/video、损坏 URI、文件名/MIME、thumbnail |
+| MED-D-006 | MediaStore 扫描按修改状态入 Client，并导出原始资源和设备缩略图 | `MediaScanner.kt` | 核心 | 高 | Android 无媒体输入或无快速预览资源 | photo/video、损坏 URI、文件名/MIME、thumbnail |
 | MED-D-007 | 每批最多扫描 40、上传 60；未完成返回 WorkManager retry | `BackupWorker` constants | 保障 | 中 | 单次 worker 无界运行，易被系统终止 | 超上限、queue 未 drain、下一次继续 |
-| MED-D-008 | 全局 Kotlin Mutex 防止同进程两个 BackupWorker 同时驱动同一 Agent | `backupMutex` | 保障 | 中 | 队列状态和 stage 可被并发宿主交错 | 自动+手动同时触发、取消后解锁 |
+| MED-D-008 | 全局 Kotlin Mutex 防止同进程两个 BackupWorker 同时驱动同一 Client | `backupMutex` | 保障 | 中 | 队列状态和 stage 可被并发宿主交错 | 自动+手动同时触发、取消后解锁 |
 | MED-D-009 | WorkManager 支持立即、周期、Wi-Fi-only、charging-only 与取消 | `BackupScheduler.kt` | 建议保留 | 高 | 只能前台手动备份，可靠性显著下降 | constraints、unique work、配置变更、stop |
 | MED-D-010 | 长任务以前台 dataSync notification 发布阶段、项目和进度 | `createForegroundInfo` | 保障 | 中 | 新 Android 会限制后台运行，用户也看不到占用 | notification permission/channel、API 29+ type、取消 |
 | MED-D-011 | BackupApi 要求 endpoint 字符串以 `https://` 开头，使用 Bearer 请求 bootstrap/upload/library，并设置 30 秒连接、10 分钟读写 timeout | `BackupApi.kt` | 核心 | 高 | Android 无法与 Server 互操作 | status/body/JSON、token、timeout、TLS failure；尚未做 canonical URL/host allowlist |
-| MED-D-012 | 上传只发送 Server 返回的 missing parts，每块成功后持久化 Agent checkpoint | `BackupWorker::uploadJob` | 保障 | 高 | 断线后完整重传，或本地误标已上传 | missing subset、part failure、complete failure |
+| MED-D-012 | 上传只发送 Server 返回的 missing parts，每块成功后持久化 Client checkpoint | `BackupWorker::uploadJob` | 保障 | 高 | 断线后完整重传，或本地误标已上传 | missing subset、part failure、complete failure |
 | MED-D-013 | 达到 40 个新资源 scan limit 时使用 `replace_members=false`，否则全量替换已扫描相册成员 | `scan.limitReached`、`syncAlbum` | 保障 | 高 | 分批扫描会错误清空未遍历成员 | 40/41 items、空完整 album；Android 14 selected-media 可见子集当前无法与完整授权区分，存在移除不可见成员的边界 |
 | MED-D-014 | RemoteLibrary 分页 timeline、推进 sync cursor、恢复到 MediaStore、读取 thumbnail | `RemoteLibrary.kt` | 核心 | 高 | 用户无法浏览或取回备份 | 多页、cursor、download failure、权限；当前只检查 `plain-v1`/HTTP，不做恢复后 size/BLAKE3 校验；`resolve` 接受绝对 URL 并附带 Bearer，Server 必须只返回同源相对 path |
 | MED-D-015 | 收藏、归档、trash/restore、标签和重复组有移动 API/UI 接口 | `BackupApi`、`RemoteLibrary`、Compose | 可选 | 中 | 备份主链保留，整理能力下降 | 每个 mutation、刷新、错误回滚 |
@@ -168,15 +168,15 @@ React 管理页、配置与 systemd、发行 identity/manifest、CI/脚本、正
 
 | ID | 当前功能/特性与真实行为 | 实现/代码锚点 | 分类 | 复杂度 | 删除后的确定后果 | 最低验证/边界 |
 |---|---|---|---|---|---|---|
-| MED-I-001 | SwiftUI 提供配置、相册选择、备份进度、时间线、整理和恢复 UI | `ContentView.swift`、`BackupCoordinator` | 建议保留 | 高 | Rust Agent/网络层仍在但没有可用产品入口 | 首次配置、permission、loading/error、空图库 |
+| MED-I-001 | SwiftUI 提供配置、相册选择、备份进度、时间线、整理和恢复 UI | `ContentView.swift`、`BackupCoordinator` | 建议保留 | 高 | Rust Client/网络层仍在但没有可用产品入口 | 首次配置、permission、loading/error、空图库 |
 | MED-I-002 | username/password/token 使用 Keychain；普通 UserDefaults 只保存 endpoint/偏好/cursor | `KeychainStore.swift`、`BackupCoordinator` | 保障 | 高 | Secret 进入普通偏好/设备备份，或偏好丢失导致体验下降 | 存取/覆盖/删除、重启、Keychain error |
 | MED-I-003 | PhotoKit 请求 read-write 权限；authorized 与 limited 都进入当前扫描流程 | `PhotoScanner::requestAccess` | 保障 | 高 | 无法扫描或越过用户授权预期 | authorized/limited/denied/restricted；UI 可见集合不是完整库证明 |
 | MED-I-004 | PhotoKit 枚举当前可见相册与成员，按选定集合形成 membership | `PhotoScanner::albums/scan` | 核心 | 高 | 无法保留相册结构或控制范围 | smart/user albums、重复 asset、空 album；limited 结果当前没有“非完整”标志 |
 | MED-I-005 | PHAssetResource 原始字节允许从 iCloud 下载到临时源 | `PhotoScanner::export` | 核心 | 高 | iCloud-only 媒体无法备份 | network allowed、下载失败、取消、临时文件 |
 | MED-I-006 | iOS 设备生成 512×512 高质量 JPEG thumbnail 并作为独立 `thumbnail` resource | `PhotoScanner::thumbnail` | 建议保留 | 中 | 远端列表仍可取原图但预览代价显著上升 | degraded callback、error、无 image、metadata role |
 | MED-I-007 | Background URLSession 上传 part，并用 taskDescription 绑定 job/upload/index | `BackgroundUploader.swift` | 建议保留 | 高 | App 退到后台后传输更易中断，或 callback 无法回到 job | 当前 delegate 活着时 mapping/HTTP/file failure；进程重启事件接管尚未实现，不能声称 relaunch 闭环 |
-| MED-I-008 | bootstrap/complete/album 请求使用当前 JSON identity 与 Bearer token | `BackgroundUploader`、`MobileContractV02` | 核心 | 高 | iOS 与 Server/Agent 合同分叉 | exact JSON、错误 envelope、token 缺失 |
-| MED-I-009 | BackupCoordinator 串行扫描、最多取 24 个 Agent job，并把 part 提交给 background session 后同步相册和发布状态 | `runBackup` | 核心 | 高 | UI 与后台组件无法形成完整旅程 | part 仍在飞行时 album sync 只关联 Server 已有 asset；后续 run 才可能补齐，不能称为提交完成后的原子同步 |
+| MED-I-008 | bootstrap/complete/album 请求使用当前 JSON identity 与 Bearer token | `BackgroundUploader`、`MobileContractV02` | 核心 | 高 | iOS 与 Server/Client 合同分叉 | exact JSON、错误 envelope、token 缺失 |
+| MED-I-009 | BackupCoordinator 串行扫描、最多取 24 个 Client job，并把 part 提交给 background session 后同步相册和发布状态 | `runBackup` | 核心 | 高 | UI 与后台组件无法形成完整旅程 | part 仍在飞行时 album sync 只关联 Server 已有 asset；后续 run 才可能补齐，不能称为提交完成后的原子同步 |
 | MED-I-010 | RemoteLibrary 提供 timeline/sync、收藏归档、标签、重复数、trash 和恢复到 Photos | `RemoteLibrary.swift` | 核心 | 高 | 备份只能写不能查/恢复 | 多页、cursor、下载、Photos write permission |
 | MED-I-011 | 恢复选择 primary resource，把 HTTP 下载临时文件交给 PhotoKit 创建 asset | `restoreToPhotos` | 核心 | 高 | 核心“恢复”目标消失 | 无 primary、下载失败、照片/视频、权限；当前未接入 size/BLAKE3 校验 |
 | MED-I-012 | AppDelegate 注册 BGProcessingTask，expiration 会取消 Swift Task | `MediaBackupApp.swift` | 保障 | 中 | 删除后 iOS 不会按系统时机继续调度备份 | 当前未实现 `handleEventsForBackgroundURLSession`；`runBackup` 内部吞掉业务错误且外层仍报告 success，expiration 与正常结束也需防重复 completion |
@@ -202,8 +202,8 @@ React 管理页、配置与 systemd、发行 identity/manifest、CI/脚本、正
 
 | ID | 当前功能/特性与真实行为 | 实现/代码锚点 | 分类 | 复杂度 | 删除后的确定后果 | 最低验证/边界 |
 |---|---|---|---|---|---|---|
-| MED-R-001 | Server 当前 Schema identity 为 media-backup 0.2.1、revision 2、SHA `6415edde88228d508f1c0c7582f119c8fe869d2d78fd85129f359a5d748cbbc2`；管理员和平台 DDL 由 Foundation 组合 | `database.rs`、`schema/generated/current_schema.sql` | 保障 | 高 | 错库或 DDL drift 必须拒绝 | metadata、现场 fingerprint、当前身份精确校验 |
-| MED-R-002 | Agent 当前 Schema SHA 为 `fb38736bbf8ac69eb694095e62302f73233e39df42cd2d38e3dd1284e2f02558` | `agent-core/database.rs` | 保障 | 高 | 手机队列状态不可证明 | Rust/Kotlin/Swift epoch 与 Schema identity |
+| MED-R-001 | Server 当前 Schema identity 为 media-backup 0.3.0、revision 2、SHA `6415edde88228d508f1c0c7582f119c8fe869d2d78fd85129f359a5d748cbbc2`；管理员和平台 DDL 由 Foundation 组合 | `database.rs`、`schema/generated/current_schema.sql` | 保障 | 高 | 错库或 DDL drift 必须拒绝 | metadata、现场 fingerprint、当前身份精确校验 |
+| MED-R-002 | Client 当前 Schema SHA 为 `fb38736bbf8ac69eb694095e62302f73233e39df42cd2d38e3dd1284e2f02558` | `client-core/database.rs` | 保障 | 高 | 手机队列状态不可证明 | Rust/Kotlin/Swift epoch 与 Schema identity |
 | MED-R-003 | 两个数据库都先复制 main/WAL/journal 私有 generation，再验证 source 未变化 | 两个 `database.rs` | 保障 | 高 | 启动验证可能读取跨时刻混合状态或写源库 | WAL、并发变化、symlink、cleanup |
 | MED-R-004 | Server open 使用 WAL、foreign keys、busy timeout，并在业务前做 integrity/FK | `database.rs`、doctor | 保障 | 高 | 并发/损坏行为变得不可预测 | PRAGMA、busy 5s、corruption、FK violation |
 | MED-R-005 | runtime lock 同时绑定数据库与 DATA_DIR，防止两个 Server 管同一状态 | `runtime_lock.rs` | 保障 | 高 | 双实例可同时提交、清理和改账户路径 | 同 DB/不同 data、同 data/不同 DB、symlink/hardlink |
@@ -216,7 +216,7 @@ React 管理页、配置与 systemd、发行 identity/manifest、CI/脚本、正
 | MED-R-012 | `build-server-release.sh` 只在 Linux AMD64 接受 64-bit little-endian x86_64 ELF | release script | 开发运维 | 中 | 文件名 target 与真实 ELF 可不一致 | ELF magic/class/endian/machine、wrong host |
 | MED-R-013 | 发行包包含 binary、配置样例、`deploy/media-backup.service` 映射出的 systemd、脚本、Web、FFI header 和必要文档 | build script | 开发运维 | 高 | 操作者拿到不完整或跨代部署单元 | expected exact layout、真实 verify-release |
 | MED-R-014 | systemd 使用 `isarmg-media`、flat `/etc/isarmg/media-backup.env`、ConditionArchitecture 和 sandbox | `deploy/media-backup.service` | 保障 | 高 | 错服务账号、配置路径或权限扩大主机攻击面 | `systemd-analyze verify`、实际 start、write paths |
-| MED-R-015 | 安装 no-clobber 固定 `/opt/isarmg/media-backup/releases/0.2.1`，环境 0600 | `setup-wsl.sh`、deployment tests | 保障 | 高 | 同版本覆盖会让运行内容不可追溯，Secret 权限过宽 | 首装/二次安装、concurrent、mode/owner |
+| MED-R-015 | 安装 no-clobber 固定 `/opt/isarmg/media-backup/releases/0.3.0`，环境 0600 | `setup-wsl.sh`、deployment tests | 保障 | 高 | 同版本覆盖会让运行内容不可追溯，Secret 权限过宽 | 首装/二次安装、concurrent、mode/owner |
 | MED-R-016 | CI 分别覆盖 Rust/Server release、Android、iOS 和移动静态合同 | `.github/workflows`、contract scripts | 开发运维 | 高 | 任一平台可在 wire/FFI 漂移时独立发布 | clean checkout jobs、平台矩阵、lock mode |
 | MED-R-017 | Rust 固定 1.98.0；Web Node/toolchain 与 Cargo/npm locks 均固定 | toolchain/version/lock files | 开发运维 | 中 | 解析随时间变化，制品难复现 | `--locked`、`npm ci`、version output |
 | MED-R-018 | 中文 README、学习、流程、功能取舍和运维文档是发行/维护闭包 | `README.md`、`docs/` | 开发运维 | 低 | 跨五种语言/平台的知识只能口头传递 | 链接、命令、代码锚点和 schema hash 抽查 |
@@ -237,15 +237,15 @@ React 管理页、配置与 systemd、发行 identity/manifest、CI/脚本、正
 | MED-X-010 | 不把 `accounts` 或 `resources.role` 合并进 Administrator 角色 | 分离 Schema/route/auth | 核心 | 高 | 数据归属、媒体用途和控制权限会混成不可审计模型 | 三域术语、逐 route threat model、升级转换 |
 | MED-X-011 | 管理 Web 不是完整媒体图库；时间线/恢复/整理主要由移动端承担 | Web routes/components | 可选 | 高 | 完整 Web 图库需增加安全下载、虚拟列表、预览与恢复 UX | 大库性能、隐私/CSP、浏览器媒体测试 |
 | MED-X-012 | 原始媒体、缩略图、SQLite 和 external TLS/Secret 必须作为组合灾备对象；产品不执行备份 | 运维边界、`sarmg-upgrade` | 保障 | 高 | 只复制 DB 或 data 会得到不可恢复组合 | 停机锁、sidecar-aware snapshot、隔离恢复演练 |
-| MED-X-013 | Agent 当前**没有**在到期 `retry_wait` 中复用已有 `prepared_json`；它会重新进入 `prepare_file`。若 `remove_source_after_prepare=true` 已删除宿主导出的临时源，第一次上传失败后可能永久卡在“源文件不存在”重试 | `Agent::next_prepared`、`mark_failed`、`prepare_job` | 保障 | 高 | 修复需要把“已有 prepared parts 的上传重试”与“尚未准备成功的源文件重试”分开；忽略该边界会把可重试网络错误变成不可恢复队列 | 精确测试：准备并删源→mark upload/failed→推进 backoff→下一次必须复用同一 JSON/part 且不读源；当前测试与实现尚未满足 |
-| MED-X-014 | Agent 当前**没有**清理 `prepare_file` 中途失败或 `preparing` 无 JSON 的进程恢复残留；`prepare_file` 会复用既有 job 目录并覆盖同名 part，尾部旧 part 可能留下 | `crates/crypto::prepare_file`、`Agent::open/next_prepared/mark_complete` | 保障 | 高 | 修复必须只操作 `backup-staging-v0.2-r2/prepared/<规范 job UUID>/`，不能宽泛删除 `prepared/` 或按未验证 DB 文本拼接路径；忽略会长期占用设备空间 | 精确测试：准备失败残留、进程恢复残留、短文件覆盖长文件、非法 job ID、相邻 job 不受影响；当前实现尚未满足 |
+| MED-X-013 | Client 当前**没有**在到期 `retry_wait` 中复用已有 `prepared_json`；它会重新进入 `prepare_file`。若 `remove_source_after_prepare=true` 已删除宿主导出的临时源，第一次上传失败后可能永久卡在“源文件不存在”重试 | `Client::next_prepared`、`mark_failed`、`prepare_job` | 保障 | 高 | 修复需要把“已有 prepared parts 的上传重试”与“尚未准备成功的源文件重试”分开；忽略该边界会把可重试网络错误变成不可恢复队列 | 精确测试：准备并删源→mark upload/failed→推进 backoff→下一次必须复用同一 JSON/part 且不读源；当前测试与实现尚未满足 |
+| MED-X-014 | Client 当前**没有**清理 `prepare_file` 中途失败或 `preparing` 无 JSON 的进程恢复残留；`prepare_file` 会复用既有 job 目录并覆盖同名 part，尾部旧 part 可能留下 | `crates/crypto::prepare_file`、`Client::open/next_prepared/mark_complete` | 保障 | 高 | 修复必须只操作 `backup-staging-v0.3-r1/prepared/<规范 job UUID>/`，不能宽泛删除 `prepared/` 或按未验证 DB 文本拼接路径；忽略会长期占用设备空间 | 精确测试：准备失败残留、进程恢复残留、短文件覆盖长文件、非法 job ID、相邻 job 不受影响；当前实现尚未满足 |
 
 ## 12. 关键取舍说明
 
 ### 12.1 为什么 Server 只支持 AMD64，而移动端不是
 
 Server 的 target gate、x86_64 ELF、systemd 和 Linux 文件系统安全形成一套部署证明；Android/iOS Rust
-库只是设备内 Agent，需要各自 ARM/模拟器 ABI。把两者一概写成“全项目 AMD64”会直接破坏真机客户端，
+库只是设备内 Client，需要各自 ARM/模拟器 ABI。把两者一概写成“全项目 AMD64”会直接破坏真机客户端，
 因此平台矩阵必须按 Server 与 client 分栏维护。
 
 ### 12.2 为什么有 Administrator、备份账户和资源 role
@@ -262,13 +262,13 @@ Administrator 管理部署；备份账户拥有媒体命名空间、配额和设
 
 ### 12.4 为什么不在运行时做升级
 
-Server 与 Agent 在打开状态前先验证唯一当前 Schema 和身份。发现非当前状态即停止，避免一边服务一边
+Server 与 Client 在打开状态前先验证唯一当前 Schema 和身份。发现非当前状态即停止，避免一边服务一边
 转换导致半代数据。未来转换、备份和恢复只由 `sarmg-upgrade` 在停机排他边界执行。
 
 ## 13. 功能删除检查表
 
 1. 在评审中引用本清单 ID，明确接受的用户后果与数据后果。
-2. 删除所有生产者和消费者：Server、Agent、FFI、Android、iOS、Web，不保留隐藏入口。
+2. 删除所有生产者和消费者：Server、Client、FFI、Android、iOS、Web，不保留隐藏入口。
 3. 涉及持久状态时生成新的完整当前 Schema；产品代码不添加 migration。
 4. 同步 API DTO、mobile epoch、FFI header、release identity 和静态合同。
 5. 删除配置、依赖、权限、systemd/脚本和发行 manifest 条目。

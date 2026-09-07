@@ -6,7 +6,7 @@
 /server.pid
 .*.media-backup.lock
 /reference-immich/
-/.agents/
+/.clients/
 /.codex/
 /clients/android/.gradle/
 /clients/android/local.properties

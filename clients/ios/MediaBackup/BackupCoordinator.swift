@@ -171,7 +171,7 @@ final class BackupCoordinator: ObservableObject {
                 appropriateFor: nil,
                 create: true
             )
-            let agent = try RustAgent(
+            let client = try RustClient(
                 databasePath: support.appendingPathComponent(MobileContractV02.databaseFilename).path
             )
             let staging = support.appendingPathComponent(MobileContractV02.stagingDirectory, isDirectory: true)
@@ -189,15 +189,15 @@ final class BackupCoordinator: ObservableObject {
             }
             MobileContractV02.preferences.set(Array(selectedAlbumIds), forKey: "selected_album_ids")
             let scan = try await PhotoScanner().scan(
-                agent: agent,
+                client: client,
                 stagingRoot: staging,
                 selectedAlbumIds: selectedAlbumIds
             )
             status = "发现 \(scan.queued) 个待处理资源"
-            let uploader = BackgroundUploader(agent: agent, serverURL: baseURL, token: bearer!)
+            let uploader = BackgroundUploader(client: client, serverURL: baseURL, token: bearer!)
             self.uploader = uploader
             for _ in 0..<24 {
-                guard let job = try agent.next(stagingRoot: staging.path) else { break }
+                guard let job = try client.next(stagingRoot: staging.path) else { break }
                 try await uploader.submit(job)
             }
             for (id, album) in scan.albums {

@@ -1,7 +1,7 @@
 //! Current product ABI: Foundation revision 2, length-delimited inputs and owned results.
 #![allow(clippy::missing_safety_doc)]
-use media_backup_agent_core::{
-    Agent, AgentConfig, EnqueueResource, MOBILE_APPLICATION_VERSION, MOBILE_DATABASE_FILENAME,
+use media_backup_client_core::{
+    Client, ClientConfig, EnqueueResource, MOBILE_APPLICATION_VERSION, MOBILE_DATABASE_FILENAME,
     MOBILE_PRODUCT, MOBILE_REVISION, MOBILE_STAGING_DIRECTORY, MOBILE_STATE_EPOCH,
 };
 use sarmg_mobile_ffi::{self as ffi, FfiError, Handle, HandleRegistry, Payload, SarmgFfiResultV2};
@@ -13,10 +13,10 @@ use std::{
 
 const MAX_PATH_BYTES: usize = 4096;
 const MAX_IDENTIFIER_BYTES: usize = 4096;
-static AGENTS: OnceLock<HandleRegistry<Arc<Agent>>> = OnceLock::new();
+static CLIENTS: OnceLock<HandleRegistry<Arc<Client>>> = OnceLock::new();
 
-fn agents() -> &'static HandleRegistry<Arc<Agent>> {
-    AGENTS.get_or_init(HandleRegistry::default)
+fn clients() -> &'static HandleRegistry<Arc<Client>> {
+    CLIENTS.get_or_init(HandleRegistry::default)
 }
 fn internal(_: impl std::fmt::Display) -> FfiError {
     FfiError::internal()
@@ -34,40 +34,40 @@ fn require_path(path: &str, filename: &str) -> Result<(), FfiError> {
     Ok(())
 }
 fn open_impl(path: &str, config: &str) -> Result<u64, FfiError> {
-    let config: AgentConfig =
+    let config: ClientConfig =
         serde_json::from_str(config).map_err(|_| FfiError::invalid_argument())?;
     require_path(path, MOBILE_DATABASE_FILENAME)?;
-    let agent = Agent::open(path, config).map_err(|error| match error {
-        media_backup_agent_core::AgentError::InvalidContract(_) => FfiError::invalid_argument(),
+    let client = Client::open(path, config).map_err(|error| match error {
+        media_backup_client_core::ClientError::InvalidContract(_) => FfiError::invalid_argument(),
         _ => FfiError::internal(),
     })?;
-    agents().insert(Arc::new(agent)).map(Handle::to_u64)
+    clients().insert(Arc::new(client)).map(Handle::to_u64)
 }
 fn close_impl(handle: u64) -> Result<(), FfiError> {
-    agents().remove(Handle::from_u64(handle)).map(|_| ())
+    clients().remove(Handle::from_u64(handle)).map(|_| ())
 }
-fn with_agent<T>(
+fn with_client<T>(
     handle: u64,
-    operation: impl FnOnce(&Agent) -> Result<T, FfiError>,
+    operation: impl FnOnce(&Client) -> Result<T, FfiError>,
 ) -> Result<T, FfiError> {
-    let agent = agents().get(Handle::from_u64(handle))?;
-    operation(&agent)
+    let client = clients().get(Handle::from_u64(handle))?;
+    operation(&client)
 }
 fn enqueue_impl(handle: u64, input: &str) -> Result<Value, FfiError> {
     let input: EnqueueResource =
         serde_json::from_str(input).map_err(|_| FfiError::invalid_argument())?;
-    with_agent(handle, |a| {
+    with_client(handle, |a| {
         a.enqueue(input).map(Value::String).map_err(internal)
     })
 }
 fn next_impl(handle: u64, staging: &str) -> Result<Value, FfiError> {
     require_path(staging, MOBILE_STAGING_DIRECTORY)?;
-    with_agent(handle, |a| {
+    with_client(handle, |a| {
         serde_json::to_value(a.next_prepared(staging).map_err(internal)?).map_err(internal)
     })
 }
 fn stats_impl(handle: u64) -> Result<Value, FfiError> {
-    with_agent(handle, |a| {
+    with_client(handle, |a| {
         serde_json::to_value(a.stats().map_err(internal)?).map_err(internal)
     })
 }
@@ -128,7 +128,7 @@ pub unsafe extern "C" fn mb_needs_v2(
         ffi::guard(output, || {
             let asset = ffi::checked_utf8(asset, asset_len, MAX_IDENTIFIER_BYTES)?;
             let resource = ffi::checked_utf8(resource, resource_len, MAX_IDENTIFIER_BYTES)?;
-            with_agent(handle, |a| {
+            with_client(handle, |a| {
                 a.needs_resource(asset, resource, modified_ms)
                     .map_err(internal)
             })
@@ -181,7 +181,7 @@ pub unsafe extern "C" fn mb_mark_upload_v2(
         ffi::guard(output, || {
             let job = ffi::checked_utf8(job, job_len, MAX_IDENTIFIER_BYTES)?;
             let upload = ffi::checked_utf8(upload, upload_len, MAX_IDENTIFIER_BYTES)?;
-            with_agent(handle, |a| a.mark_upload(job, upload).map_err(internal))?;
+            with_client(handle, |a| a.mark_upload(job, upload).map_err(internal))?;
             json_payload(Value::Null)
         })
     }
@@ -197,7 +197,7 @@ pub unsafe extern "C" fn mb_mark_part_v2(
     unsafe {
         ffi::guard(output, || {
             let job = ffi::checked_utf8(job, job_len, MAX_IDENTIFIER_BYTES)?;
-            with_agent(handle, |a| {
+            with_client(handle, |a| {
                 a.mark_part_uploaded(job, index).map_err(internal)
             })?;
             json_payload(Value::Null)
@@ -214,7 +214,7 @@ pub unsafe extern "C" fn mb_mark_complete_v2(
     unsafe {
         ffi::guard(output, || {
             let job = ffi::checked_utf8(job, job_len, MAX_IDENTIFIER_BYTES)?;
-            with_agent(handle, |a| a.mark_complete(job).map_err(internal))?;
+            with_client(handle, |a| a.mark_complete(job).map_err(internal))?;
             json_payload(Value::Null)
         })
     }
@@ -236,7 +236,7 @@ pub unsafe extern "C" fn mb_mark_failed_v2(
             }
             let job = ffi::checked_utf8(job, job_len, MAX_IDENTIFIER_BYTES)?;
             let message = ffi::checked_utf8(message, message_len, ffi::MAX_INPUT_BYTES)?;
-            with_agent(handle, |a| {
+            with_client(handle, |a| {
                 a.mark_failed(job, message, retryable == 1)
                     .map_err(internal)
             })?;

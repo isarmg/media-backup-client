@@ -1,0 +1,24 @@
+[package]
+name = "media-backup-client-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+libc.workspace = true
+media-backup-crypto = { path = "../crypto" }
+media-backup-protocol = { git = "https://github.com/isarmg/media-backup-server.git", rev = "92ad37c4c771c38dcd0d3bbe722d4f94f18bfbe7", version = "=0.3.0" }
+sarmg-client-fs-safety = { git = "https://github.com/isarmg/sarmg-foundation-client.git", rev = "b47b550a39336b4a592ea9acf26e98b4d8a660b1", version = "=0.7.0" }
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+blake3.workspace = true

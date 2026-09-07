@@ -1,27 +1,22 @@
-# Media Backup 照片与视频备份
+# Media Backup Client
 
-Media Backup `0.2.1` 是一个自托管照片与视频备份系统，由 Rust 服务端、Rust 共享核心、Android
-客户端和 iOS 客户端组成。移动端通过 HTTPS 上传设备原始媒体和设备生成的缩略图；服务端使用
-SQLite 保存账户、图库组织和同步状态，并以 `plain-v1` 保存与设备原文件一致的未加密字节。
+本仓库为 Media Backup Client `0.3.0` 开发版，包含 Android/iOS、Rust 移动核心和 FFI。
+Server 与管理 Web 位于 [media-backup-server](https://github.com/isarmg/media-backup-server)。
+移动端通过经过证书验证的 HTTPS 上传媒体；Client 不包含 Server 可执行程序或管理 Web。
 
-本项目只实现当前版本。服务端只创建并接受 Media Backup `0.2.1` 当前 Schema，移动端只接受
-`media-backup-mobile-v0.2-r2` 合约；不属于当前身份的数据库、凭据和队列一律拒绝，产品仓库也不提供
+本项目只实现当前版本，移动端只接受
+`media-backup-mobile-v0.3-r1` 合约；不属于当前身份的数据库、凭据和队列一律拒绝，产品仓库也不提供
 迁移、备份和恢复命令。这些离线任务统一由独立的 `sarmg-upgrade` 项目负责。
 
 ## 组成
 
 ```text
-crates/server       Rust/Axum 服务端、管理页和运维命令
-crates/protocol     服务端与移动端共享的数据协议
 crates/crypto       分块准备、BLAKE3 计算和明文恢复校验能力
-crates/agent-core   移动端本地队列与当前 SQLite 契约
+crates/client-core   移动端本地队列与当前 SQLite 契约
 crates/mobile-ffi   Android JNI 与 iOS C ABI 边界
 clients/android/            Kotlin、Jetpack Compose、WorkManager 客户端
 clients/ios/                SwiftUI、PhotoKit、后台 URLSession 客户端
-clients/web/                React 19 + TypeScript strict + Vite 7 管理客户端
-config/                     可提交配置样例；生产 Secret 位于源码树外
-deploy/                     systemd 源单元；发行时映射到 systemd/
-scripts/                    构建、发行、部署和契约门禁
+scripts/                    移动端构建、发行和契约门禁
 ```
 
 ## 快速验证
@@ -29,31 +24,19 @@ scripts/                    构建、发行、部署和契约门禁
 ```bash
 ./scripts/check-mobile-v02-contract.sh
 ./scripts/check-workflow-supply-chain.sh
-npm ci --prefix clients/web
-npm run build --prefix clients/web
 cargo fmt --all -- --check
 cargo check --workspace --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
 ```
 
-Web 使用 Node `26.7.0`；`build` 会先执行 `check:foundation`，核对 `.node-version`、engine、精确
-React/Vite/TypeScript 版本、Foundation 依赖、lockfile、CSS 摘要和 `data-sarmg-scope`。Server 使用
-`rust-toolchain.toml` 固定 Rust `1.98.0`，Rust 编译前必须先生成 `clients/web/dist`。
-
-服务端开发构建可以在显式回环开发配置下运行；正式环境必须使用不可变发行归档，并由 Caddy 或
-Nginx 在可信代理边界终止 TLS。移动业务 API 只位于 `/v2`；浏览器管理员认证只位于
-`/api/v2/auth/login|session|logout`，管理业务只位于 `/api/v2/admin/*`。正式 Server 的编译目标、
-归档 ELF、运行主机和 systemd 条件都固定为 `x86_64-unknown-linux-gnu`/Linux x86_64，不提供 ARM Server
-fallback。完整步骤见运维文档。
-
-Server 管理身份采用 Foundation 当前 `username` 合同：登录只接受 `{username,password}`，成功 Session
-恰为 `{authenticated,user_id,username,role:"admin",csrf_token}`。这一变化只属于 Server 与内置
-React/Vite 管理 Web；移动端、`accounts.username`、设备 Token/API Key、移动 Schema 和 FFI 合同保持
-原状。管理 username 与备份账户 username 即使文字相同，也属于不同表、不同凭据和不同授权域。
+使用 Rust `1.98.0`。Foundation Client 与 Server 所属协议均固定完整 Git 提交和精确版本，
+无需相邻仓库，也无需先构建管理 Web。移动 API 为 `/v2`，设备凭据与 Server 管理员凭据是独立授权域。
+Android 普通 CI 构建 Debug APK，正式包必须使用受保护的签名环境；iOS CI 产物明确为未签名。
 
 ## 文档
 
+- [拆分边界及新状态 epoch](docs/repository-boundary.md)
 - [文档总览](docs/README.md)
 - [初学者学习指南](docs/beginner-guide/README.md)
 - [项目工作流程与流程树](docs/project-workflow.md)

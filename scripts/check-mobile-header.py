@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check the C header using the exact Agent Foundation resolved by Cargo.lock."""
+"""Check the C header using the exact Client Foundation resolved by Cargo.lock."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ def main() -> None:
                and package["version"] == version
                and package["source"] == expected_source]
     if len(matches) != 1:
-        raise SystemExit("expected one exact, locked Agent Foundation FFI dependency")
+        raise SystemExit("expected one exact, locked Client Foundation FFI dependency")
     foundation = Path(matches[0]["manifest_path"]).resolve().parents[3]
     subprocess.run([
         sys.executable, str(foundation / "tools/ffi_header.py"),

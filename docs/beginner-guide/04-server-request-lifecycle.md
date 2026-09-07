@@ -33,7 +33,7 @@ Cookie 解析、登录准入、数据库 Store、Cookie 属性、TTL 和撤销�
 
 ## 上传路由
 
-移动合约的 product/version/revision 在 Agent 入队边界验证；HTTP create upload 验证 storage encoding、
+移动合约的 product/version/revision 在 Client 入队边界验证；HTTP create upload 验证 storage encoding、
 配额、资源 metadata、manifest body、part 连续编号/size 与 BLAKE3。PUT part 最多等待 30 秒取得全局与
 账户 admission permit，取得 permit 后流式执行 size/Hash 校验并写入唯一 staging；当前没有覆盖整个 body
 传输的独立 wall-clock deadline。complete 先重新验证所有 durable record 与文件 identity，再合并、Hash、

@@ -15,7 +15,7 @@ Internet -> HTTPS reverse proxy -> 127.0.0.1:8080 Media Backup
 
 ## 2. 构建与验证发行归档
 
-维护者从干净的 `0.2.1` checkout 构建：
+维护者从干净的 `0.3.0` checkout 构建：
 
 ```bash
 revision="$(git rev-parse HEAD)"
@@ -25,7 +25,7 @@ mkdir -p "$PWD/dist"
 ./scripts/build-server-release.sh \
   "$PWD/target/x86_64-unknown-linux-gnu/release/media-backup-server" \
   "$revision" "$PWD/dist"
-./scripts/test-deployment.sh "$PWD/dist/media-backup-server-0.2.1-x86_64-unknown-linux-gnu.tar.gz"
+./scripts/test-deployment.sh "$PWD/dist/media-backup-server-0.3.0-x86_64-unknown-linux-gnu.tar.gz"
 ```
 
 Cargo release build script 拒绝其他 target；归档脚本还会核对构建主机为 Linux x86_64，并直接检查输入
@@ -36,18 +36,18 @@ revision、target、`v2` 移动 API、`plain-v1`、Schema、移动 FFI、Web 与
 ## 3. 安装
 
 ```bash
-grep ' media-backup-server-0.2.1-x86_64-unknown-linux-gnu.tar.gz$' SHA256SUMS \
+grep ' media-backup-server-0.3.0-x86_64-unknown-linux-gnu.tar.gz$' SHA256SUMS \
   | sha256sum --check -
-tar -xzf media-backup-server-0.2.1-x86_64-unknown-linux-gnu.tar.gz
-cd media-backup-server-0.2.1-x86_64-unknown-linux-gnu
+tar -xzf media-backup-server-0.3.0-x86_64-unknown-linux-gnu.tar.gz
+cd media-backup-server-0.3.0-x86_64-unknown-linux-gnu
 ./bin/media-backup-server release-identity
 ./bin/media-backup-server release-verify "$PWD"
 sudo ./scripts/setup-wsl.sh
 sudoedit /etc/isarmg/media-backup.env
-sudo /opt/isarmg/media-backup/releases/0.2.1/scripts/start-server-wsl.sh
+sudo /opt/isarmg/media-backup/releases/0.3.0/scripts/start-server-wsl.sh
 ```
 
-安装只允许创建缺失的 `/opt/isarmg/media-backup/releases/0.2.1`，不会覆盖或复用。同版本重装应先按
+安装只允许创建缺失的 `/opt/isarmg/media-backup/releases/0.3.0`，不会覆盖或复用。同版本重装应先按
 运维变更流程处理现有部署，而不是绕过 no-clobber。环境文件首次以 `0600` 排他创建；替换自动生成的
 `BOOTSTRAP_ADMIN_USERNAME`、`BOOTSTRAP_ADMIN_PASSWORD`、`METRICS_TOKEN` 并删除初始化标记后才能启动。登录候选 username
 必须是 1–64 bytes 的可打印 ASCII；Foundation 会去除首尾 ASCII whitespace、转为 ASCII 小写，再要求
@@ -77,7 +77,7 @@ canonical 值为 3–64 bytes、首尾字母数字且全部字符仅为 `[a-z0-9
 Admin Core、SQLite Store、Axum Adapter 拥有。空闲 30 分钟、绝对 12 小时、每管理员 32 个/全局 1024 个
 Session 是固定平台策略，不提供产品级 TTL 配置。管理员登录来源使用真实 socket peer，不信任转发来源头。
 
-此合同调整的范围只有 Server 和编译进 Server 的 React/Vite 管理 Web。Android/iOS、Agent 数据库、
+此合同调整的范围只有 Server 和编译进 Server 的 React/Vite 管理 Web。Android/iOS、Client 数据库、
 `/v2/auth/bootstrap`、备份账户 username、设备 Token 与 API Key 均保持当前移动合同，运维不得把
 `BOOTSTRAP_ADMIN_USERNAME` 写入移动客户端配置，也不得把普通账户提升或复制到 `_sarmg_administrators`。
 
@@ -97,7 +97,7 @@ media.example.com {
 ```bash
 curl --fail http://127.0.0.1:8080/healthz
 curl --fail http://127.0.0.1:8080/readyz
-sudo /opt/isarmg/media-backup/releases/0.2.1/scripts/run-server-wsl.sh
+sudo /opt/isarmg/media-backup/releases/0.3.0/scripts/run-server-wsl.sh
 ```
 
 启动脚本先检查 `uname`，二进制的 `serve-release` 再通过内核 `uname(2)` 检查 Linux x86_64，systemd 单元
@@ -125,10 +125,10 @@ blob rooted unlink/删行及 orphan commit staging 清理。永久删除响应 2
 
 ## 6. 当前数据库合同
 
-服务端 `product_metadata` 必须精确为 `application=media-backup`、`application_version=0.2.1`、
+服务端 `product_metadata` 必须精确为 `application=media-backup`、`application_version=0.3.0`、
 `schema_revision=2`，Schema SHA-256 为
 `6415edde88228d508f1c0c7582f119c8fe869d2d78fd85129f359a5d748cbbc2`。移动队列对应
-`media-backup-agent` 与 SHA-256
+`media-backup-client` 与 SHA-256
 `fb38736bbf8ac69eb694095e62302f73233e39df42cd2d38e3dd1284e2f02558`。
 
 数据库只在主文件不存在时创建。已存在空文件、非当前元数据或结构漂移会在业务写入前拒绝，不能
@@ -151,7 +151,7 @@ cargo install cargo-ndk
 gradle -p clients/android testDebugUnitTest assembleDebug
 ```
 
-上述命令只生成不发布的 Debug APK，不得获得正式签名 Secret。正式 `v0.2.1` workflow 使用 application ID
+上述命令只生成不发布的 Debug APK，不得获得正式签名 Secret。正式 `v0.3.0` workflow 使用 application ID
 `org.sarmg.mediabackup`、alias `media-backup-android-release` 和受保护 `android-signing` Environment 中仅有的
 `MEDIA_BACKUP_ANDROID_SIGNING_PKCS12_BASE64`、`MEDIA_BACKUP_ANDROID_SIGNING_PKCS12_PASSWORD` 两个
 Secret 执行 `assembleRelease`。证书必须是 RSA 4096、`CA:FALSE`、Digital Signature/Code Signing，SHA-256
@@ -179,10 +179,10 @@ xcodebuild -project MediaBackup.xcodeproj -scheme MediaBackup -sdk iphonesimulat
 5. 移动端检查系统权限、后台任务限制、本地队列和安全凭据存储。
 6. 若是版本/Schema 问题，停止服务并转交 `sarmg-upgrade`，不要加入兼容代码。
 
-移动 Agent 的当前已知边界：`retry_wait` 到期会重新准备源文件，不会复用仍持久化的 `prepared_json`；
+移动 Client 的当前已知边界：`retry_wait` 到期会重新准备源文件，不会复用仍持久化的 `prepared_json`；
 若扫描器已按 `remove_source_after_prepare` 删除导出临时源，上传失败后可能持续报源不存在。准备失败或
 `preparing` 崩溃也可能留下 partial part。采集 job ID、数据库行和对应目录证据后再处置；不得删除整个
-`backup-staging-v0.2-r2/prepared/`，也不得把数据库中未经校验的 ID 直接拼为递归删除目标。
+`backup-staging-v0.3-r1/prepared/`，也不得把数据库中未经校验的 ID 直接拼为递归删除目标。
 
 ## 10. 安全事件
 

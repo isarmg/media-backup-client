@@ -12,7 +12,7 @@ private struct BootstrapResponse: Decodable {
 }
 
 final class BackgroundUploader: NSObject, URLSessionTaskDelegate {
-    private let agent: RustAgent
+    private let client: RustClient
     private let serverURL: URL
     private let token: String
     private var session: URLSession!
@@ -27,8 +27,8 @@ final class BackgroundUploader: NSObject, URLSessionTaskDelegate {
         return value
     }()
 
-    init(agent: RustAgent, serverURL: URL, token: String) {
-        self.agent = agent
+    init(client: RustClient, serverURL: URL, token: String) {
+        self.client = client
         self.serverURL = serverURL
         self.token = token
         super.init()
@@ -47,11 +47,11 @@ final class BackgroundUploader: NSObject, URLSessionTaskDelegate {
         try requireSuccess(response, data: data)
         let created = try decoder.decode(CreateUploadResponse.self, from: data)
         if created.disposition == "complete" {
-            try agent.markComplete(job: job.jobId)
+            try client.markComplete(job: job.jobId)
             return
         }
         guard let uploadId = created.uploadId else { throw UploadFailure.invalidResponse }
-        try agent.markUpload(job: job.jobId, upload: uploadId)
+        try client.markUpload(job: job.jobId, upload: uploadId)
         let localParts = Dictionary(uniqueKeysWithValues: job.localParts.map { ($0.index, $0.path) })
         if created.missingParts.isEmpty {
             try await finish(jobId: job.jobId, uploadId: uploadId)
@@ -87,20 +87,20 @@ final class BackgroundUploader: NSObject, URLSessionTaskDelegate {
         let jobId = fields[0]
         let uploadId = fields[1]
         if let error {
-            agent.markFailed(job: jobId, error: error.localizedDescription)
+            client.markFailed(job: jobId, error: error.localizedDescription)
             return
         }
         guard let response = task.response as? HTTPURLResponse, (200..<300).contains(response.statusCode) else {
-            agent.markFailed(job: jobId, error: "后台上传返回非成功状态")
+            client.markFailed(job: jobId, error: "后台上传返回非成功状态")
             return
         }
-        do { try agent.markPart(job: jobId, index: index) }
-        catch { agent.markFailed(job: jobId, error: error.localizedDescription) }
+        do { try client.markPart(job: jobId, index: index) }
+        catch { client.markFailed(job: jobId, error: error.localizedDescription) }
         session.getAllTasks { [weak self] tasks in
             guard !tasks.contains(where: { $0.taskDescription?.hasPrefix("\(jobId)|") == true }) else { return }
             Task {
                 do { try await self?.finish(jobId: jobId, uploadId: uploadId) }
-                catch { self?.agent.markFailed(job: jobId, error: error.localizedDescription) }
+                catch { self?.client.markFailed(job: jobId, error: error.localizedDescription) }
             }
         }
     }
@@ -111,7 +111,7 @@ final class BackgroundUploader: NSObject, URLSessionTaskDelegate {
         request.httpBody = Data("{}".utf8)
         let (data, response) = try await URLSession.shared.data(for: request)
         try requireSuccess(response, data: data)
-        try agent.markComplete(job: jobId)
+        try client.markComplete(job: jobId)
     }
 
     private func authorized(path: String, method: String) -> URLRequest {

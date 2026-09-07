@@ -15,7 +15,7 @@ test -f crates/mobile-ffi/include/media_backup_ffi_v2.h \
     || fail "the current ABI 2 C header is missing"
 test ! -e crates/mobile-ffi/include/media_backup_v0_2_r1.h \
     || fail "the removed NUL-string C ABI header remains"
-if rg -n 'mb_v0_2_r1|NativeBridgeV02|withCString|@_silgen_name' crates/mobile-ffi/src clients/ios/MediaBackup/RustAgent.swift clients/android/app/src/main; then
+if rg -n 'mb_v0_2_r1|NativeBridgeV02|withCString|@_silgen_name' crates/mobile-ffi/src clients/ios/MediaBackup/RustClient.swift clients/android/app/src/main; then
     fail "a removed mobile ABI implementation or caller remains"
 fi
 python3 scripts/check-mobile-header.py
@@ -38,15 +38,15 @@ if grep -R -I -n -E 'com[.]example|Java_com_example_' \
 fi
 
 for required in \
-    'media-backup-mobile-v0.2-r2' \
-    'agent-v0.2-r2.sqlite' \
-    'backup-staging-v0.2-r2' \
+    'media-backup-mobile-v0.3-r1' \
+    'client-v0.3-r1.sqlite' \
+    'backup-staging-v0.3-r1' \
     'mb_open_v2' \
     'Java_org_sarmg_mediabackup_NativeBridgeV2_open' \
     'org.sarmg.mediabackup'; do
     # All platform clients live below clients/; keeping this gate on the
     # canonical paths makes directory drift fail visibly in CI.
-    grep -R -I -q -F "$required" crates/mobile-ffi crates/agent-core clients/android clients/ios \
+    grep -R -I -q -F "$required" crates/mobile-ffi crates/client-core clients/android clients/ios \
         || fail "required v0.2 contract marker is missing: $required"
 done
 
