@@ -217,7 +217,8 @@ HTTP 响应和发行身份校验，发行包 `share/web/` 必须包含相同字�
 失败重试、两个管理员域的隔离、字体资产、键盘焦点及移动明暗主题 WCAG AA。首次运行先在
 `clients/web` 执行 `npx playwright install --with-deps chromium firefox`。
 
-当前八个 Foundation Web 包（admin-web、admin-shell、admin-ui、contracts、design-tokens、http-client、
-web-fonts、web-toolchain）暂用相邻工作区 `file:` 来源，Rust 也处于平台迁移联调阶段，尚不能声称独立
-checkout 或不可变发布已完成。P13 必须统一切换新不可变发行资产、精确版本/revision 与完整性锁，
-断开 sibling 后重新验收；不得在线编辑 `share/web`、复制旧 dist、vendoring 共享 CSS 或加入兼容 fallback。
+当前 Server Rust 固定 Foundation `=0.7.0` / `77e7ad7af8e1bf62432bd6bdd8fa9aff54cb39d1`；八个 Web 包使用
+同版正式 Release tarball 与 lockfile integrity，不依赖相邻工作区。独立 CI 已通过，含 Server archive、
+Android 编译及未签名 iOS 验证，见[消费者证据](https://github.com/isarmg/sarmg-foundation-server/blob/main/consumers/axum-0.7.0-evidence.md)。
+这不代表这些主分支改动已重新发布为移动端或 Server 制品，也不代替原生签名和目标运行验收。
+后续更新仍须复验锁图和发行身份；不得在线编辑 `share/web`、复制旧 dist、vendoring 共享 CSS 或加入兼容 fallback。

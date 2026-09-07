@@ -142,9 +142,9 @@ Node 26.7.0 + clients/web/package-lock.json
   -> release manifest 再绑定相同三个字节
 ```
 
-四个 `@sarmg/*` 包始终从 Foundation GitHub Release `v0.3.0` 的对应 `.tgz` URL 安装；lockfile 绑定
-实际归档的 `sha512` integrity，使独立 checkout/CI 不依赖同级目录。Rust crate 同时锁定版本 `=0.3.0`
-和完整 Git revision `1fe326081cfd896f05ff502e80f99504797c14c6`。开发命令只有：
+八个 `@sarmg/*` 包从 Foundation GitHub Release `v0.7.0` 的对应 `.tgz` URL 安装；lockfile 绑定
+实际归档的 `sha512` integrity，使独立 checkout/CI 不依赖同级目录。Rust crate 同时锁定版本 `=0.7.0`
+和完整 Git revision `77e7ad7af8e1bf62432bd6bdd8fa9aff54cb39d1`。开发命令只有：
 
 ```bash
 cd clients/web
