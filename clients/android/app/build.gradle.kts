@@ -3,19 +3,14 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-// Android 客户端统一放在 clients/android；版本仍只由工作区根 Cargo.toml 定义。
-val workspaceVersion = file("../../../Cargo.toml").readText()
-    .substringAfter("[workspace.package]")
-    .substringBefore("\n[")
-    .lineSequence()
-    .first { it.trimStart().startsWith("version =") }
-    .substringAfter('"')
-    .substringBefore('"')
+// Distribution versions must not silently change the persisted mobile state identity.
+// Rust crates and MobileContractV02 retain the explicit 0.3.0 / v0.3-r1 contract.
+val workspaceVersion = file("../../../VERSION").readText().trim()
 
 val semanticVersion = workspaceVersion.substringBefore('-').split('.').map(String::toInt)
 require(semanticVersion.size == 3) { "Workspace version must use major.minor.patch" }
-require(workspaceVersion == "0.3.0") {
-    "The mobile v0.3 state epoch r1 requires workspace version 0.3.0; define a new epoch before bumping"
+require(workspaceVersion == "0.3.1") {
+    "This release builds Media Backup Client 0.3.1"
 }
 
 val releasePkcs12Path = providers

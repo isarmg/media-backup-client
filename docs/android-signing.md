@@ -9,7 +9,7 @@ GitHub 仓库 `isarmg/media-backup` 的 `android-signing` 环境保存两个 Sec
 - `MEDIA_BACKUP_ANDROID_SIGNING_PKCS12_BASE64`
 - `MEDIA_BACKUP_ANDROID_SIGNING_PKCS12_PASSWORD`
 
-环境部署规则仅放行已审定的 `v0.3.0` 标签。未来版本需先审查对应提交及发布工作流，再显式添加标签规则，不放行任意分支或 pull request。
+本次经用户明确授权，环境部署规则新增且仅放行已审定的 `v0.3.1` 标签，保留现有规则。未来版本需先审查对应提交及发布工作流，再显式添加标签规则，不放行任意分支或 pull request。
 私钥和密码不进入 Git、Release 附件或构建日志；发布任务只在临时目录生成权限受限的签名输入。
 
 正式流水线执行 `assembleRelease`，并使用 `apksigner` 验证签名、唯一证书及以上指纹；同时检查 application ID 和唯一 `arm64-v8a` 原生库。

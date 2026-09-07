@@ -10,22 +10,25 @@ import java.io.File
 import java.io.OutputStream
 import java.util.concurrent.TimeUnit
 
-class BackupApi(private val serverUrl: String, private var bearerToken: String) {
+class BackupApi(
+    private val serverUrl: String,
+    private var bearerToken: String,
+    private val client: OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(10, TimeUnit.MINUTES)
+        .writeTimeout(10, TimeUnit.MINUTES)
+        .build(),
+) {
     init {
         require(serverUrl.startsWith("https://")) { "服务器地址必须使用 HTTPS" }
     }
     private val jsonType = "application/json".toMediaType()
     private val binaryType = "application/octet-stream".toMediaType()
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.MINUTES)
-        .writeTimeout(10, TimeUnit.MINUTES)
-        .build()
 
     fun health(): Boolean {
-        val request = Request.Builder().url("$serverUrl/health").get().build()
+        val request = Request.Builder().url("${serverUrl.trimEnd('/')}/healthz").get().build()
         client.newCall(request).execute().use {
-            if (!it.isSuccessful) error("服务端健康检查失败: ${it.code}")
+            if (it.code != 204) error("服务端健康检查失败: ${it.code}")
             return true
         }
     }

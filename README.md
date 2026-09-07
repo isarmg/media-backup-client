@@ -1,12 +1,17 @@
 # Media Backup Client
 
-本仓库为 Media Backup Client `0.3.0` 开发版，包含 Android/iOS、Rust 移动核心和 FFI。
+本仓库为 Media Backup Client `0.3.1`，包含 Android/iOS、Rust 移动核心和 FFI。
 Server 与管理 Web 位于 [media-backup-server](https://github.com/isarmg/media-backup-server)。
 移动端通过经过证书验证的 HTTPS 上传媒体；Client 不包含 Server 可执行程序或管理 Web。
 
 本项目只实现当前版本，移动端只接受
 `media-backup-mobile-v0.3-r1` 合约；不属于当前身份的数据库、凭据和队列一律拒绝，产品仓库也不提供
 迁移、备份和恢复命令。这些离线任务统一由独立的 `sarmg-upgrade` 项目负责。
+
+发行号由根目录 `VERSION` 指定。`0.3.1` 仅修复 Android 健康检查，Rust crate、
+本地状态身份 `0.3.0` 和 `media-backup-mobile-v0.3-r1` 保持不变；不引入旧格式解析或迁移。
+服务器填写 HTTPS 根地址（例如 `https://backup.sarmg.org`），不添加 `/admin/`。
+Android 连接检查访问 `/healthz` 并要求 `204`；它只检查服务存活，不代表账号已认证或备份已完成。
 
 ## 组成
 
