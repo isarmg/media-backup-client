@@ -12,6 +12,9 @@ use sha2::{Digest, Sha256};
 #[cfg(unix)]
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 
+#[cfg(any(target_vendor = "apple", all(test, unix)))]
+mod sandbox_vfs;
+
 const APPLICATION: &str = "media-backup-client";
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 const CURRENT_SCHEMA: &str = include_str!("current_schema.sql");
@@ -64,7 +67,7 @@ pub(super) fn open_current(path: &Path) -> anyhow::Result<Connection> {
     }
 
     require_secure_database_file(path).context(OpenStage::Validate)?;
-    let connection = Connection::open_with_flags(
+    let connection = open_sqlite(
         path,
         OpenFlags::SQLITE_OPEN_READ_WRITE
             | OpenFlags::SQLITE_OPEN_NO_MUTEX
@@ -88,6 +91,16 @@ pub(super) fn open_current(path: &Path) -> anyhow::Result<Connection> {
     Ok(connection)
 }
 
+fn open_sqlite(path: &Path, flags: OpenFlags) -> rusqlite::Result<Connection> {
+    #[cfg(any(target_vendor = "apple", all(test, unix)))]
+    {
+        sandbox_vfs::register()?;
+        Connection::open_with_flags_and_vfs(path, flags, sandbox_vfs::NAME)
+    }
+    #[cfg(not(any(target_vendor = "apple", all(test, unix))))]
+    Connection::open_with_flags(path, flags)
+}
+
 fn require_client_database_path(path: &Path) -> anyhow::Result<()> {
     ensure!(path.is_absolute(), "client SQLite path must be absolute");
     ensure!(
@@ -106,7 +119,7 @@ fn require_client_database_path(path: &Path) -> anyhow::Result<()> {
 fn validate_current_database(path: &Path) -> anyhow::Result<()> {
     require_secure_database_file(path)?;
     let snapshot = snapshot_generation(path)?;
-    let connection = Connection::open_with_flags(
+    let connection = open_sqlite(
         &snapshot.database,
         OpenFlags::SQLITE_OPEN_READ_WRITE
             | OpenFlags::SQLITE_OPEN_NO_MUTEX
@@ -302,7 +315,7 @@ fn initialize_current_database(path: &Path) -> anyhow::Result<()> {
     drop(reserved);
 
     let result = (|| {
-        let connection = Connection::open_with_flags(
+        let connection = open_sqlite(
             path,
             OpenFlags::SQLITE_OPEN_READ_WRITE
                 | OpenFlags::SQLITE_OPEN_NO_MUTEX
