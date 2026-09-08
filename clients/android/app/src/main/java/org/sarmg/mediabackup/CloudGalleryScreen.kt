@@ -258,21 +258,27 @@ internal fun PhotoViewerScreen(context: Context, api: BackupApi, profile: String
         Surface(Modifier.fillMaxSize()) {
             Column {
                 val pager = rememberPagerState(initialPage = index, pageCount = { assets.size })
-                Row {
-                    TextButton(onClick = onClose) { Text("关闭") }
-                    TextButton(onClick = { onSave(assets[pager.currentPage]) }) { Text("保存到手机") }
-                    TextButton(onClick = { onFavorite(assets[pager.currentPage]) }) { Text("切换收藏") }
-                }
+                var menu by remember { mutableStateOf(false) }
+                var addingTag by remember { mutableStateOf(false) }
                 var tag by remember { mutableStateOf("") }
                 val current = assets[pager.currentPage]
-                Row {
-                    TextButton(onClick = { onAction(current, "archive", "") }) { Text(if (current.archived) "取消归档" else "归档") }
-                    TextButton(onClick = { onAction(current, "trash", "") }) { Text(if (current.trashed) "撤销删除" else "移入回收站") }
+                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                    TextButton(onClick = onClose) { Text("关闭") }
+                    TextButton(onClick = { onSave(current) }) { Text("保存到手机") }
+                    Box {
+                        TextButton(onClick = { menu = true }) { Text("更多") }
+                        DropdownMenu(menu, { menu = false }) {
+                            DropdownMenuItem(text = { Text(if (current.favorite) "取消收藏" else "收藏") }, onClick = { menu = false; onFavorite(current) })
+                            DropdownMenuItem(text = { Text(if (current.archived) "取消归档" else "归档") }, onClick = { menu = false; onAction(current, "archive", "") })
+                            DropdownMenuItem(text = { Text("添加标签") }, onClick = { menu = false; tag = ""; addingTag = true })
+                            DropdownMenuItem(text = { Text(if (current.trashed) "恢复照片" else "移入回收站") }, onClick = { menu = false; onAction(current, "trash", "") })
+                        }
+                    }
                 }
-                Row {
-                    OutlinedTextField(tag, { tag = it }, Modifier.weight(1f), label = { Text("标签") }, singleLine = true)
-                    TextButton(enabled = tag.isNotBlank(), onClick = { onAction(current, "tag", tag.trim()) }) { Text("加标签") }
-                }
+                if (addingTag) AlertDialog(onDismissRequest = { addingTag = false }, title = { Text("添加标签") },
+                    text = { OutlinedTextField(tag, { tag = it }, label = { Text("标签名称") }, singleLine = true) },
+                    confirmButton = { TextButton(enabled = tag.isNotBlank(), onClick = { addingTag = false; onAction(current, "tag", tag.trim()) }) { Text("添加") } },
+                    dismissButton = { TextButton(onClick = { addingTag = false }) { Text("取消") } })
                 HorizontalPager(pager, Modifier.weight(1f), key = { assets[it].id }) { page ->
                     var zoom by remember { mutableFloatStateOf(1f) }
                     val asset = assets[page]

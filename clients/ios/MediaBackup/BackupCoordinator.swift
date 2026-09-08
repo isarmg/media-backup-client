@@ -95,7 +95,7 @@ final class BackupCoordinator: ObservableObject {
         try KeychainStore.save(response.accountId.uuidString, for: "account_id_v04")
         try KeychainStore.save(response.deviceId.uuidString, for: "device_id_v04")
         try KeychainStore.save(response.bearerToken, for: MobileContractV02.tokenKey)
-        MobileContractV02.preferences.set(address, for: "server_url")
+        MobileContractV02.preferences.set(address, forKey: "server_url")
         serverURL = address; username = credentials.username; password = credentials.password
         stores[newProfile] = targetStore
         library = RemoteLibrary(serverURL: credentials.server, token: response.bearerToken)

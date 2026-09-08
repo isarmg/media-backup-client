@@ -150,38 +150,49 @@ struct PhotoViewerScreen: View {
     @EnvironmentObject private var coordinator: BackupCoordinator
     @Environment(\.dismiss) private var dismiss
     @State private var selected: UUID?
+    @State private var addingTag = false
+    private var current: RemoteAsset? { coordinator.remoteAssets.first { $0.id == (selected ?? initial.id) } }
     var body: some View {
-        VStack {
-            HStack {
-                Button("关闭") { dismiss() }
-                if let asset = coordinator.remoteAssets.first(where: { $0.id == (selected ?? initial.id) }) {
-                    Button("保存到手机") { Task { await coordinator.restoreToPhone(asset) } }
-                    Button(asset.favorite ? "取消收藏" : "收藏") { Task { await coordinator.toggleFavorite(asset); dismiss() } }
-                    Button(asset.isTrashed ? "撤销删除" : "回收站") { Task { await coordinator.toggleTrash(asset); dismiss() } }
+        NavigationStack {
+            VStack(spacing: 8) {
+                TabView(selection: $selected) {
+                    ForEach(coordinator.remoteAssets) { asset in
+                        Group {
+                            if asset.mediaKind == "video", let library = coordinator.library, let primary = asset.primary {
+                                CloudVideo(library: library, resource: primary, active: (selected ?? initial.id) == asset.id)
+                            } else { CloudImage(asset: asset, library: coordinator.library, profile: coordinator.profile, preview: true) }
+                        }.tag(Optional(asset.id))
+                    }
+                }.tabViewStyle(.page)
+                Text("双指缩放 · 左右切换").font(.caption).foregroundStyle(.secondary)
+                Text(coordinator.status).font(.caption).foregroundStyle(.secondary).lineLimit(2).padding(.horizontal)
+            }.padding(.bottom)
+            .navigationTitle("照片预览").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } }
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    if let asset = current {
+                        Button { Task { await coordinator.restoreToPhone(asset) } } label: {
+                            Image(systemName: "square.and.arrow.down")
+                        }.accessibilityLabel("保存到手机")
+                        Menu {
+                            Button(asset.favorite ? "取消收藏" : "收藏") { Task { await coordinator.toggleFavorite(asset); dismiss() } }
+                            Button(asset.archived ? "取消归档" : "归档") { Task { await coordinator.toggleArchived(asset); dismiss() } }
+                            Button("添加标签") { coordinator.newTagName = ""; addingTag = true }
+                            Button(asset.isTrashed ? "恢复照片" : "移入回收站") { Task { await coordinator.toggleTrash(asset); dismiss() } }
+                        } label: { Image(systemName: "ellipsis.circle") }.accessibilityLabel("照片操作")
+                    }
                 }
             }
-            if let asset = coordinator.remoteAssets.first(where: { $0.id == (selected ?? initial.id) }) {
-                HStack {
-                    Button(asset.archived ? "取消归档" : "归档") { Task { await coordinator.toggleArchived(asset); dismiss() } }
-                    TextField("标签", text: $coordinator.newTagName)
-                    Button("加标签") { Task { await coordinator.addTag(asset); dismiss() } }.disabled(coordinator.newTagName.isEmpty)
-                }
+            .alert("添加标签", isPresented: $addingTag) {
+                TextField("标签名称", text: $coordinator.newTagName)
+                Button("取消", role: .cancel) {}
+                Button("添加") { if let asset = current { Task { await coordinator.addTag(asset); dismiss() } } }
+                    .disabled(coordinator.newTagName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
-            TabView(selection: $selected) {
-                ForEach(coordinator.remoteAssets) { asset in
-                    Group {
-                        if asset.mediaKind == "video", let library = coordinator.library, let primary = asset.primary {
-                            CloudVideo(library: library, resource: primary, active: (selected ?? initial.id) == asset.id)
-                        } else { CloudImage(asset: asset, library: coordinator.library, profile: coordinator.profile, preview: true) }
-                    }.tag(Optional(asset.id))
-                }
-            }.tabViewStyle(.page)
-            Text("查看只使用应用缓存；双指缩放，左右切换").font(.caption)
-            Text(coordinator.status).font(.caption)
-        }
-        .padding()
-        .onAppear { selected = initial.id }
+        }.onAppear { selected = initial.id }
     }
+
 }
 
 struct ZoomablePhoto: UIViewRepresentable {

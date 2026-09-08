@@ -33,7 +33,9 @@ struct ContentView: View {
             NavigationStack { settings.navigationTitle("设置").toolbar { accountToolbar } }
                 .tabItem { Label("设置", systemImage: "gear") }.tag(3)
         }
-        .sheet(isPresented: $account) { AccountScreen() }
+        .sheet(isPresented: $account, onDismiss: {
+            if tab == 1, coordinator.library != nil { Task { await coordinator.refreshLibrary() } }
+        }) { AccountScreen() }
         .sheet(isPresented: $picker, onDismiss: { confirmPicker = !selection.isEmpty }) {
             SelectedMediaPicker { results in selection = results; picker = false }
         }
