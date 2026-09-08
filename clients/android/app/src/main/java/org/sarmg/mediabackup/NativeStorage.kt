@@ -31,7 +31,9 @@ internal object NativeStorage {
         }
         val descriptor = Os.open(
             directory.path,
-            OsConstants.O_RDONLY or OsConstants.O_DIRECTORY or
+            // O_DIRECTORY is not a public Android SDK constant. Nonblocking
+            // open plus fstat rejects non-directories without hanging on FIFOs.
+            OsConstants.O_RDONLY or OsConstants.O_NONBLOCK or
                 OsConstants.O_NOFOLLOW or OsConstants.O_CLOEXEC,
             0,
         )

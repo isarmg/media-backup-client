@@ -26,6 +26,7 @@ class NativeStorageInstrumentedTest {
 
     @After fun tearDown() {
         // Tests unlink their synthetic symlinks before deleting this isolated fixture.
+        Os.chmod(root.path, 0x1c0)
         root.deleteRecursively()
     }
 
@@ -58,6 +59,8 @@ class NativeStorageInstrumentedTest {
             .put("source_size", source.length())
             .put("metadata_json", JSONObject.NULL)
             .put("remove_source_after_prepare", false)
+        // Model shared Android ancestors: traversal is allowed but listing is not.
+        Os.chmod(root.path, 0x49) // 0111
         val handle = open(paths)
         try {
             MobileContractV02.requireEnvelope(NativeBridgeV2.enqueue(handle, input.toString()))

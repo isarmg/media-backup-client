@@ -471,7 +471,7 @@ dependencies = [
 [[package]]
 name = "sarmg-client-fs-safety"
 version = "0.7.0"
-source = "git+https://github.com/isarmg/sarmg-foundation-client.git?rev=b47b550a39336b4a592ea9acf26e98b4d8a660b1#b47b550a39336b4a592ea9acf26e98b4d8a660b1"
+source = "git+https://github.com/isarmg/sarmg-foundation-client.git?rev=2a62ebc7572aebb6862cfa69229f1ac60577c3d2#2a62ebc7572aebb6862cfa69229f1ac60577c3d2"
 dependencies = [
  "getrandom",
  "rustix",
@@ -481,7 +481,7 @@ dependencies = [
 [[package]]
 name = "sarmg-mobile-ffi"
 version = "0.7.0"
-source = "git+https://github.com/isarmg/sarmg-foundation-client.git?rev=b47b550a39336b4a592ea9acf26e98b4d8a660b1#b47b550a39336b4a592ea9acf26e98b4d8a660b1"
+source = "git+https://github.com/isarmg/sarmg-foundation-client.git?rev=2a62ebc7572aebb6862cfa69229f1ac60577c3d2#2a62ebc7572aebb6862cfa69229f1ac60577c3d2"
 dependencies = [
  "jni",
 ]
