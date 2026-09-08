@@ -49,10 +49,11 @@ final class NavigationTests: XCTestCase {
         let photo = app.images.matching(identifier: "PXGGridLayout-Info").firstMatch
         XCTAssertTrue(photo.waitForExistence(timeout: 20), app.debugDescription)
         photo.tap()
-        let add = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ OR label BEGINSWITH %@ OR label == %@ OR label == %@", "添加", "Add", "完成", "Done"))
-            .allElementsBoundByIndex.first(where: { $0.isHittable })
-        XCTAssertNotNil(add, app.debugDescription)
-        add?.tap()
+        let add = app.buttons["Add"]
+        XCTAssertTrue(add.waitForExistence(timeout: 15), app.debugDescription)
+        let ready = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true AND hittable == true"), object: add)
+        XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 10), .completed)
+        add.tap()
         XCTAssertTrue(app.staticTexts["选择要备份的媒体"].waitForExistence(timeout: 15), app.debugDescription)
         let preview = app.descendants(matching: .any).matching(identifier: "selection.preview.0").firstMatch
         XCTAssertTrue(preview.waitForExistence(timeout: 10), app.debugDescription)
