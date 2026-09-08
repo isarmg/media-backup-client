@@ -82,7 +82,7 @@ struct LocalGalleryScreen: View {
                 Button("授权 / 调整范围") { Task {
                     let authorization = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
                     if authorization == .limited, let window = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first?.windows.first(where: \.isKeyWindow), let controller = window.rootViewController {
-                        PHPhotoLibrary.shared().presentLimitedLibraryPicker(from: controller)
+                        await PHPhotoLibrary.shared().presentLimitedLibraryPicker(from: controller)
                     }
                     await load(scan: true)
                 } }
