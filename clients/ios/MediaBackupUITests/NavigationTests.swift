@@ -46,10 +46,10 @@ final class NavigationTests: XCTestCase {
         XCTAssertTrue(app.buttons["gallery.add"].waitForExistence(timeout: 20))
         app.buttons["gallery.add"].tap()
         app.buttons["gallery.system-picker"].tap()
-        let photo = app.collectionViews.cells.firstMatch
+        let photo = app.images.matching(identifier: "PXGGridLayout-Info").firstMatch
         XCTAssertTrue(photo.waitForExistence(timeout: 20), app.debugDescription)
         photo.tap()
-        let add = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ OR label BEGINSWITH %@", "添加", "Add"))
+        let add = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ OR label BEGINSWITH %@ OR label == %@ OR label == %@", "添加", "Add", "完成", "Done"))
             .allElementsBoundByIndex.first(where: { $0.isHittable })
         XCTAssertNotNil(add, app.debugDescription)
         add?.tap()
