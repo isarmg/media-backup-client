@@ -9,6 +9,7 @@
 /.clients/
 /.codex/
 /clients/android/.gradle/
+/clients/android/.kotlin/
 /clients/android/local.properties
 /clients/android/app/build/
 /clients/android/app/src/main/jniLibs/

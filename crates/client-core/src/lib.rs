@@ -6,6 +6,10 @@ use std::{
 };
 
 mod database;
+mod gallery;
+mod transfers;
+pub use gallery::GalleryCommand;
+pub use transfers::{TransferCommand, TransferRequest};
 
 use media_backup_crypto::prepare_file;
 use media_backup_protocol::{CreateUploadRequest, MediaKind, StorageEncoding};
@@ -41,11 +45,11 @@ pub enum ClientError {
 }
 
 pub const MOBILE_PRODUCT: &str = "media-backup";
-pub const MOBILE_APPLICATION_VERSION: &str = "0.3.0";
+pub const MOBILE_APPLICATION_VERSION: &str = "0.4.0";
 pub const MOBILE_REVISION: u32 = 1;
-pub const MOBILE_STATE_EPOCH: &str = "media-backup-mobile-v0.3-r1";
-pub const MOBILE_DATABASE_FILENAME: &str = "client-v0.3-r1.sqlite";
-pub const MOBILE_STAGING_DIRECTORY: &str = "backup-staging-v0.3-r1";
+pub const MOBILE_STATE_EPOCH: &str = "media-backup-mobile-v0.4-r1";
+pub const MOBILE_DATABASE_FILENAME: &str = "client-v0.4-r1.sqlite";
+pub const MOBILE_STAGING_DIRECTORY: &str = "backup-staging-v0.4-r1";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -93,6 +97,8 @@ pub struct EnqueueResource {
     pub source_size: u64,
     pub metadata_json: Option<String>,
     pub remove_source_after_prepare: bool,
+    pub batch_id: Option<String>,
+    pub batch_item_id: Option<String>,
 }
 
 impl EnqueueResource {
@@ -218,7 +224,7 @@ impl Client {
         let connection = database::open_current(path.as_ref())?;
         validate_persisted_jobs(&connection)?;
         connection.execute(
-            "UPDATE jobs SET state = 'ready', upload_id = NULL WHERE state IN ('preparing', 'uploading') AND prepared_json IS NOT NULL",
+            "UPDATE jobs SET state = 'ready' WHERE state IN ('preparing', 'uploading') AND prepared_json IS NOT NULL",
             [],
         )?;
         connection.execute(
@@ -241,86 +247,50 @@ impl Client {
             .connection
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let existing: Option<(String, i64)> = connection
-            .query_row(
-                "SELECT state, modified_ms FROM jobs WHERE source_asset_id = ?1 AND source_resource_id = ?2",
-                params![source_asset_id, source_resource_id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .optional()?;
-        Ok(
-            !matches!(existing, Some((state, known_modified)) if state == "complete" && known_modified == modified_ms),
-        )
+        let exists: bool = connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM jobs WHERE source_asset_id = ?1 AND source_resource_id = ?2 AND modified_ms = ?3 AND (state='complete' OR automatic=1 OR EXISTS(SELECT 1 FROM batch_jobs r JOIN backup_batches b ON b.id=r.batch_id WHERE r.job_id=jobs.id AND b.cancelled=0)))",
+            params![source_asset_id, source_resource_id, modified_ms], |row| row.get(0),
+        )?;
+        Ok(!exists)
     }
 
     pub fn enqueue(&self, input: EnqueueResource) -> Result<String, ClientError> {
         input.validate()?;
-        let now = now_ms();
-        let connection = self
-            .connection
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let existing: Option<(String, i64, u64, String)> = connection
-            .query_row(
-                "SELECT id, modified_ms, source_size, state FROM jobs WHERE source_asset_id = ?1 AND source_resource_id = ?2",
-                params![input.source_asset_id, input.source_resource_id],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-            )
-            .optional()?;
-        let id = existing
-            .as_ref()
-            .map(|value| value.0.clone())
-            .unwrap_or_else(|| Uuid::new_v4().to_string());
-        let changed = existing
-            .map(|(_, modified, size, state)| {
-                modified != input.modified_ms || size != input.source_size || state != "complete"
-            })
-            .unwrap_or(true);
-        if changed {
-            connection.execute(
-                r#"
-                INSERT INTO jobs (
-                    id, source_asset_id, source_resource_id, media_kind, role, file_path,
-                    filename, mime_type, source_created_at_ms, modified_ms, source_size,
-                    metadata_json, remove_source_after_prepare, state, updated_at_ms
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, 'discovered', ?14)
-                ON CONFLICT(source_asset_id, source_resource_id) DO UPDATE SET
-                    media_kind = excluded.media_kind,
-                    role = excluded.role,
-                    file_path = excluded.file_path,
-                    filename = excluded.filename,
-                    mime_type = excluded.mime_type,
-                    source_created_at_ms = excluded.source_created_at_ms,
-                    modified_ms = excluded.modified_ms,
-                    source_size = excluded.source_size,
-                    metadata_json = excluded.metadata_json,
-                    remove_source_after_prepare = excluded.remove_source_after_prepare,
-                    state = 'discovered',
-                    prepared_json = NULL,
-                    upload_id = NULL,
-                    retry_count = 0,
-                    next_retry_ms = 0,
-                    error = NULL,
-                    updated_at_ms = excluded.updated_at_ms
-                "#,
-                params![
-                    id,
-                    input.source_asset_id,
-                    input.source_resource_id,
-                    input.media_kind,
-                    input.role,
-                    input.file_path,
-                    input.filename,
-                    input.mime_type,
-                    input.source_created_at_ms,
-                    input.modified_ms,
-                    input.source_size,
-                    input.metadata_json,
-                    input.remove_source_after_prepare as i32,
-                    now,
-                ],
+        if input.batch_id.is_some() != input.batch_item_id.is_some() {
+            return Err(ClientError::InvalidContract(
+                "batch and item must be supplied together".into(),
+            ));
+        }
+        let mut connection = self.connection.lock().unwrap_or_else(|p| p.into_inner());
+        let tx = connection.transaction()?;
+        let existing: Option<String> = tx.query_row(
+            "SELECT id FROM jobs WHERE source_asset_id = ?1 AND source_resource_id = ?2 AND modified_ms = ?3 AND source_size = ?4",
+            params![input.source_asset_id, input.source_resource_id, input.modified_ms, input.source_size],
+            |row| row.get(0),
+        ).optional()?;
+        let id = existing.unwrap_or_else(|| Uuid::new_v4().to_string());
+        tx.execute(
+            "INSERT INTO jobs (id, source_asset_id, source_resource_id, media_kind, role, file_path,
+                filename, mime_type, source_created_at_ms, modified_ms, source_size, metadata_json,
+                remove_source_after_prepare, state, updated_at_ms, automatic)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, 'discovered', ?14, ?15)
+             ON CONFLICT(source_asset_id, source_resource_id, modified_ms, source_size) DO UPDATE SET
+                automatic = MAX(jobs.automatic, excluded.automatic)",
+            params![id, input.source_asset_id, input.source_resource_id, input.media_kind, input.role,
+                input.file_path, input.filename, input.mime_type, input.source_created_at_ms,
+                input.modified_ms, input.source_size, input.metadata_json, input.remove_source_after_prepare,
+                now_ms(), input.batch_id.is_none()],
+        )?;
+        if let (Some(batch), Some(item)) = (&input.batch_id, &input.batch_item_id) {
+            tx.execute(
+                "INSERT OR IGNORE INTO batch_jobs(batch_id, item_id, job_id) VALUES (?1, ?2, ?3)",
+                params![batch, item, id],
             )?;
         }
+        // Re-selecting failed work retries it without discarding prepared parts.
+        tx.execute("UPDATE jobs SET state = CASE WHEN prepared_json IS NULL THEN 'discovered' ELSE 'ready' END,
+                    error = NULL, next_retry_ms = 0 WHERE id = ?1 AND state = 'failed'", params![id])?;
+        tx.commit()?;
         Ok(id)
     }
 
@@ -335,8 +305,8 @@ impl Client {
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             let existing: Option<String> = connection
                 .query_row(
-                    "SELECT prepared_json FROM jobs WHERE state = 'ready' ORDER BY updated_at_ms LIMIT 1",
-                    [],
+                    "SELECT prepared_json FROM jobs WHERE (state = 'ready' OR (state = 'retry_wait' AND next_retry_ms <= ?1 AND prepared_json IS NOT NULL)) AND (automatic = 1 OR EXISTS(SELECT 1 FROM batch_jobs r JOIN backup_batches b ON b.id = r.batch_id WHERE r.job_id = jobs.id AND b.cancelled = 0)) ORDER BY updated_at_ms LIMIT 1",
+                    params![now_ms()],
                     |row| row.get(0),
                 )
                 .optional()?;
@@ -360,7 +330,8 @@ impl Client {
                            filename, mime_type, source_created_at_ms, modified_ms, source_size,
                            metadata_json, remove_source_after_prepare
                     FROM jobs
-                    WHERE state = 'discovered' OR (state = 'retry_wait' AND next_retry_ms <= ?1)
+                    WHERE (state = 'discovered' OR (state = 'retry_wait' AND next_retry_ms <= ?1 AND prepared_json IS NULL))
+                    AND (automatic = 1 OR EXISTS(SELECT 1 FROM batch_jobs r JOIN backup_batches b ON b.id = r.batch_id WHERE r.job_id = jobs.id AND b.cancelled = 0))
                     ORDER BY updated_at_ms
                     LIMIT 1
                     "#,
@@ -385,6 +356,7 @@ impl Client {
                                 source_size: row.get(10)?,
                                 metadata_json: row.get(11)?,
                                 remove_source_after_prepare: row.get::<_, i32>(12)? != 0,
+                                batch_id: None, batch_item_id: None,
                             },
                         ))
                     },
@@ -483,7 +455,15 @@ impl Client {
         drop(connection);
         gc_staging_generations(staging.path(), job_id, &generation_id)?;
         if input.remove_source_after_prepare {
-            let _ = fs::remove_file(&input.file_path);
+            let source = Path::new(&input.file_path);
+            let sources = staging.path().join("sources");
+            if source.parent() == Some(sources.as_path())
+                && fs::symlink_metadata(&sources)?.is_dir()
+                && !fs::symlink_metadata(&sources)?.file_type().is_symlink()
+                && !fs::symlink_metadata(source)?.file_type().is_symlink()
+            {
+                fs::remove_file(source)?;
+            }
         }
         Ok(prepared)
     }
@@ -569,7 +549,7 @@ impl Client {
         let exponent = retries.min(10);
         let delay = (2_000_i64 * (1_i64 << exponent)).min(3_600_000);
         connection.execute(
-            "UPDATE jobs SET state = ?2, retry_count = retry_count + 1, next_retry_ms = ?3, error = ?4, upload_id = NULL, updated_at_ms = ?5 WHERE id = ?1",
+            "UPDATE jobs SET state = ?2, retry_count = retry_count + 1, next_retry_ms = ?3, error = ?4, updated_at_ms = ?5 WHERE id = ?1",
             params![job_id, state, now_ms() + delay, error, now_ms()],
         )?;
         Ok(())
@@ -581,7 +561,7 @@ impl Client {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let mut statement =
-            connection.prepare("SELECT state, COUNT(*) FROM jobs GROUP BY state")?;
+            connection.prepare("SELECT state, COUNT(*) FROM jobs WHERE state='complete' OR automatic=1 OR EXISTS(SELECT 1 FROM batch_jobs r JOIN backup_batches b ON b.id=r.batch_id WHERE r.job_id=jobs.id AND b.cancelled=0) GROUP BY state")?;
         let mut rows = statement.query([])?;
         let mut stats = ClientStats::default();
         while let Some(row) = rows.next()? {
@@ -699,6 +679,8 @@ mod tests {
             source_size: 0,
             metadata_json: None,
             remove_source_after_prepare: false,
+            batch_id: None,
+            batch_item_id: None,
         }
     }
 
@@ -728,6 +710,8 @@ mod tests {
                 source_size: original.len() as u64,
                 metadata_json: Some(r#"{"favorite":true}"#.to_owned()),
                 remove_source_after_prepare: true,
+                batch_id: None,
+                batch_item_id: None,
             })
             .unwrap();
         let staging = root.join(MOBILE_STAGING_DIRECTORY);
@@ -754,13 +738,16 @@ mod tests {
             .unwrap()
             .validate()
             .is_err());
-        assert!(!source.exists());
+        assert!(
+            source.exists(),
+            "preparation must never delete a user original outside private staging"
+        );
         drop(client);
         fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
-    fn prepare_publishes_a_new_generation_then_collects_the_old_one() {
+    fn changed_source_keeps_inflight_generation_and_creates_an_independent_job() {
         let root = tempfile::tempdir().unwrap();
         let source = root.path().join("source.jpg");
         let staging = root.path().join(MOBILE_STAGING_DIRECTORY);
@@ -781,11 +768,21 @@ mod tests {
         input.source_size = 17;
         input.modified_ms = 2;
         client.enqueue(input).unwrap();
+        assert_eq!(
+            client
+                .next_prepared(&staging)
+                .unwrap()
+                .unwrap()
+                .generation_id,
+            first.generation_id
+        );
+        client.mark_upload(&first.job_id, "upload-one").unwrap();
         let second = client.next_prepared(&staging).unwrap().unwrap();
         let second_directory = Path::new(&second.local_parts[0].path).parent().unwrap();
 
         assert_ne!(first.generation_id, second.generation_id);
-        assert!(!first_directory.exists());
+        assert!(first_directory.exists());
+        assert_ne!(first.job_id, second.job_id);
         assert!(second_directory.exists());
         assert_eq!(
             second_directory
@@ -884,7 +881,7 @@ mod tests {
             ),
             (
                 "wrong-revision",
-                "UPDATE product_metadata SET schema_revision = 2",
+                "UPDATE product_metadata SET schema_revision = 999",
             ),
             (
                 "wrong-fingerprint",
@@ -1039,6 +1036,8 @@ mod tests {
                 source_size: 15,
                 metadata_json: None,
                 remove_source_after_prepare: false,
+                batch_id: None,
+                batch_item_id: None,
             })
             .unwrap();
         client

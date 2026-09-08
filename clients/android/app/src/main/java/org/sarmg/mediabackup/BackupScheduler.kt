@@ -39,12 +39,12 @@ object BackupScheduler {
     fun enqueueNow(context: Context, config: SecureConfig): UUID {
         val request = OneTimeWorkRequestBuilder<BackupWorker>()
             .setConstraints(constraints(config))
-            .setInputData(workDataOf(SOURCE_KEY to SOURCE_MANUAL))
+            .setInputData(workDataOf(SOURCE_KEY to SOURCE_MANUAL, "profile" to config.profile))
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30L, TimeUnit.SECONDS)
             .addTag(TAG)
             .build()
         WorkManager.getInstance(context)
-            .enqueueUniqueWork(NOW_WORK, ExistingWorkPolicy.REPLACE, request)
+            .enqueueUniqueWork("$NOW_WORK-${config.profile}", ExistingWorkPolicy.APPEND_OR_REPLACE, request)
         return request.id
     }
 
@@ -63,7 +63,7 @@ object BackupScheduler {
     private fun periodicRequest(config: SecureConfig, initialDelayHours: Long) =
         PeriodicWorkRequestBuilder<BackupWorker>(PERIOD_HOURS, TimeUnit.HOURS)
             .setConstraints(constraints(config))
-            .setInputData(workDataOf(SOURCE_KEY to SOURCE_AUTOMATIC))
+            .setInputData(workDataOf(SOURCE_KEY to SOURCE_AUTOMATIC, "profile" to config.profile))
             .setInitialDelay(initialDelayHours, TimeUnit.HOURS)
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30L, TimeUnit.SECONDS)
             .addTag(TAG)

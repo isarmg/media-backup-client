@@ -39,9 +39,7 @@ struct PhotoScanner {
         return result.sorted { $0.count == $1.count ? $0.name < $1.name : $0.count > $1.count }
     }
 
-    func scan(client: RustClient, stagingRoot: URL, selectedAlbumIds: Set<String>) async throws -> PhotoScanResult {
-        let sourceRoot = stagingRoot.appendingPathComponent("sources", isDirectory: true)
-        try FileManager.default.createDirectory(at: sourceRoot, withIntermediateDirectories: true)
+    func scan(store: TransferStore, selectedAlbumIds: Set<String>, drain: () async throws -> Void) async throws -> PhotoScanResult {
         let available = albums()
         let selected = selectedAlbumIds
         var assetsById: [String: PHAsset] = [:]
@@ -62,80 +60,91 @@ struct PhotoScanner {
         }
         var queued = 0
         for asset in ordered {
-            try Task.checkCancellation()
-            let modifiedMs = Int64((asset.modificationDate ?? asset.creationDate ?? .distantPast).timeIntervalSince1970 * 1000)
-            let createdMs = Int64((asset.creationDate ?? .distantPast).timeIntervalSince1970 * 1000)
-            let metadata = try JSONSerialization.data(withJSONObject: [
-                "pixel_width": asset.pixelWidth,
-                "pixel_height": asset.pixelHeight,
-                "duration": asset.duration,
-                "favorite": asset.isFavorite,
-                "hidden": asset.isHidden,
-            ])
-            for resource in PHAssetResource.assetResources(for: asset) {
-                let resourceId = "\(resource.type.rawValue):\(resource.originalFilename)"
-                guard try client.needs(asset: asset.localIdentifier, resource: resourceId, modifiedMs: modifiedMs) else { continue }
-                let output = sourceRoot.appendingPathComponent(UUID().uuidString)
-                try await export(resource, to: output)
-                let size = ((try FileManager.default.attributesOfItem(atPath: output.path)[.size]) as? NSNumber)?.uint64Value ?? 0
-                try client.enqueue(EnqueueInput(
-                    product: MobileContractV02.product,
-                    applicationVersion: MobileContractV02.applicationVersion,
-                    revision: MobileContractV02.revision,
-                    stateEpoch: MobileContractV02.stateEpoch,
-                    sourceAssetId: asset.localIdentifier,
-                    sourceResourceId: resourceId,
-                    mediaKind: asset.mediaType == .video ? "video" : "photo",
-                    role: resource.type == .photo || resource.type == .video ? "primary" : "resource-\(resource.type.rawValue)",
-                    filePath: output.path,
-                    filename: resource.originalFilename,
-                    mimeType: UTType(resource.uniformTypeIdentifier)?.preferredMIMEType ?? "application/octet-stream",
-                    sourceCreatedAtMs: createdMs,
-                    modifiedMs: modifiedMs,
-                    sourceSize: size,
-                    metadataJson: String(decoding: metadata, as: UTF8.self),
-                    removeSourceAfterPrepare: true
-                ))
-                queued += 1
-            }
-            let thumbnailId = "\(asset.localIdentifier)#thumbnail-v1"
-            if try client.needs(asset: asset.localIdentifier, resource: thumbnailId, modifiedMs: modifiedMs),
-               let thumbnail = try await thumbnail(for: asset) {
-                let output = sourceRoot.appendingPathComponent("\(UUID().uuidString).thumbnail.jpg")
-                try thumbnail.write(to: output, options: .atomic)
-                try client.enqueue(EnqueueInput(
-                    product: MobileContractV02.product,
-                    applicationVersion: MobileContractV02.applicationVersion,
-                    revision: MobileContractV02.revision,
-                    stateEpoch: MobileContractV02.stateEpoch,
-                    sourceAssetId: asset.localIdentifier,
-                    sourceResourceId: thumbnailId,
-                    mediaKind: asset.mediaType == .video ? "video" : "photo",
-                    role: "thumbnail",
-                    filePath: output.path,
-                    filename: "thumbnail.jpg",
-                    mimeType: "image/jpeg",
-                    sourceCreatedAtMs: createdMs,
-                    modifiedMs: modifiedMs,
-                    sourceSize: UInt64(thumbnail.count),
-                    metadataJson: "{\"thumbnail_of\":\"\(asset.localIdentifier)\"}",
-                    removeSourceAfterPrepare: true
-                ))
-                queued += 1
-            }
+            if try store.gallery(["op": "is_excluded", "source_id": asset.localIdentifier]) as? Bool == true { continue }
+            queued += try await enqueue(asset: asset, store: store, drain: drain)
+            if queued >= 40 { break }
         }
         return PhotoScanResult(queued: queued, albums: membership)
     }
 
-    private func export(_ resource: PHAssetResource, to url: URL) async throws {
-        let options = PHAssetResourceRequestOptions()
-        options.isNetworkAccessAllowed = true
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            PHAssetResourceManager.default().writeData(for: resource, toFile: url, options: options) { error in
-                if let error { continuation.resume(throwing: error) }
-                else { continuation.resume() }
-            }
+    func enqueue(asset: PHAsset, store: TransferStore, batch: String? = nil, item: String? = nil,
+        drain: () async throws -> Void) async throws -> Int {
+        let client = store.client
+        let sourceRoot = store.staging.appendingPathComponent("sources", isDirectory: true)
+        var queued = 0
+        try Task.checkCancellation()
+        let modifiedMs = Int64((asset.modificationDate ?? asset.creationDate ?? .distantPast).timeIntervalSince1970 * 1000)
+        let createdMs = Int64((asset.creationDate ?? .distantPast).timeIntervalSince1970 * 1000)
+        let metadata = try JSONSerialization.data(withJSONObject: [
+            "pixel_width": asset.pixelWidth,
+            "pixel_height": asset.pixelHeight,
+            "duration": asset.duration,
+            "favorite": asset.isFavorite,
+            "hidden": asset.isHidden,
+        ])
+        let resources = PHAssetResource.assetResources(for: asset)
+        try store.gallery(["op": "declare_resources", "source_id": asset.localIdentifier, "modified_ms": modifiedMs, "originals": resources.count])
+        for resource in resources {
+            if let batch, (try store.client.transfer(["op": "items", "batch_id": batch]) as? [[String: Any]])?.isEmpty == true { throw CancellationError() }
+            let resourceId = "\(resource.type.rawValue):\(resource.originalFilename)"
+            guard try !store.link(batch: batch, item: item, asset: asset.localIdentifier, resource: resourceId, modified: modifiedMs) else { continue }
+            let output = sourceRoot.appendingPathComponent(UUID().uuidString)
+            try await export(resource, to: output)
+            let size = ((try FileManager.default.attributesOfItem(atPath: output.path)[.size]) as? NSNumber)?.uint64Value ?? 0
+            try client.enqueue(EnqueueInput(
+                product: MobileContractV02.product,
+                applicationVersion: MobileContractV02.applicationVersion,
+                revision: MobileContractV02.revision,
+                stateEpoch: MobileContractV02.stateEpoch,
+                sourceAssetId: asset.localIdentifier,
+                sourceResourceId: resourceId,
+                mediaKind: asset.mediaType == .video ? "video" : "photo",
+                role: resource.type == .photo || resource.type == .video ? "primary" : "resource-\(resource.type.rawValue)",
+                filePath: output.path,
+                filename: resource.originalFilename,
+                mimeType: UTType(resource.uniformTypeIdentifier)?.preferredMIMEType ?? "application/octet-stream",
+                sourceCreatedAtMs: createdMs,
+                modifiedMs: modifiedMs,
+                sourceSize: size,
+                metadataJson: String(decoding: metadata, as: UTF8.self),
+                removeSourceAfterPrepare: true, batchId: batch, batchItemId: item
+            ))
+            queued += 1
+            try await drain()
         }
+        let thumbnailId = "\(asset.localIdentifier)#thumbnail-v1"
+        let needsThumbnail = try !store.link(batch: batch, item: item, asset: asset.localIdentifier, resource: thumbnailId, modified: modifiedMs)
+        let thumbnailData = needsThumbnail ? (try await thumbnail(for: asset)) : nil
+        if let thumbnail = thumbnailData {
+            let output = sourceRoot.appendingPathComponent("\(UUID().uuidString).thumbnail.jpg")
+            try thumbnail.write(to: output, options: .atomic)
+            try client.enqueue(EnqueueInput(
+                product: MobileContractV02.product,
+                applicationVersion: MobileContractV02.applicationVersion,
+                revision: MobileContractV02.revision,
+                stateEpoch: MobileContractV02.stateEpoch,
+                sourceAssetId: asset.localIdentifier,
+                sourceResourceId: thumbnailId,
+                mediaKind: asset.mediaType == .video ? "video" : "photo",
+                role: "thumbnail",
+                filePath: output.path,
+                filename: "thumbnail.jpg",
+                mimeType: "image/jpeg",
+                sourceCreatedAtMs: createdMs,
+                modifiedMs: modifiedMs,
+                sourceSize: UInt64(thumbnail.count),
+                metadataJson: "{\"thumbnail_of\":\"\(asset.localIdentifier)\"}",
+                removeSourceAfterPrepare: true, batchId: batch, batchItemId: item
+            ))
+            queued += 1
+            try await drain()
+        }
+        return queued
+    }
+
+    private func export(_ resource: PHAssetResource, to url: URL) async throws {
+        do { try await BoundedPhotoExport(url: url).run(resource) }
+        catch { try? FileManager.default.removeItem(at: url); throw error }
     }
 
     private func thumbnail(for asset: PHAsset) async throws -> Data? {

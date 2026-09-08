@@ -34,6 +34,7 @@ typedef struct SarmgFfiResultV2 {
  * Free each result in its original storage with sarmg_ffi_result_free_v2;
  * do not copy, modify, or separately free its pointer/length pair. */
 int32_t sarmg_ffi_result_free_v2(SarmgFfiResultV2 * output);
+int32_t mb_transfer_v2(uint64_t handle, const uint8_t * input, size_t input_len, SarmgFfiResultV2 * output);
 uint32_t mb_ffi_abi_revision(void);
 int32_t mb_open_v2(const uint8_t * path, size_t path_len, const uint8_t * config, size_t config_len, SarmgFfiResultV2 * output);
 int32_t mb_close_v2(uint64_t handle, SarmgFfiResultV2 * output);

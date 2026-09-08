@@ -102,6 +102,8 @@ struct EnqueueInput: Codable {
     let sourceSize: UInt64
     let metadataJson: String?
     let removeSourceAfterPrepare: Bool
+    var batchId: String? = nil
+    var batchItemId: String? = nil
 }
 
 private struct Envelope<T: Decodable>: Decodable {
@@ -116,7 +118,7 @@ private struct Envelope<T: Decodable>: Decodable {
 
 private struct EmptyValue: Decodable {}
 
-final class RustClient {
+final class RustClient: @unchecked Sendable {
     private let handle: UInt64
     private let encoder: JSONEncoder = {
         let value = JSONEncoder()
@@ -171,6 +173,21 @@ final class RustClient {
         let _: String? = try call { output in
             data.withUnsafeBytes { bytes in mb_enqueue_v2(handle, bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count, output) }
         }
+    }
+
+    @discardableResult
+    func transfer(_ command: [String: Any]) throws -> Any {
+        let request: [String: Any] = ["product": MobileContractV02.product,
+            "application_version": MobileContractV02.applicationVersion, "revision": MobileContractV02.revision,
+            "state_epoch": MobileContractV02.stateEpoch, "command": command]
+        let data = try JSONSerialization.data(withJSONObject: request)
+        let value: JSONValue? = try call { output in
+            data.withUnsafeBytes { bytes in
+                mb_transfer_v2(handle, bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count, output)
+            }
+        }
+        guard let value else { return NSNull() }
+        return try JSONSerialization.jsonObject(with: JSONEncoder().encode(value), options: [.fragmentsAllowed])
     }
 
     func next(stagingRoot: String) throws -> PreparedJob? {

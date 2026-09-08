@@ -15,9 +15,9 @@ use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 const APPLICATION: &str = "media-backup-client";
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 const CURRENT_SCHEMA: &str = include_str!("current_schema.sql");
-pub(super) const CURRENT_SCHEMA_REVISION: i64 = 1;
+pub(super) const CURRENT_SCHEMA_REVISION: i64 = 2;
 pub(super) const CURRENT_SCHEMA_SHA256: &str =
-    "fb38736bbf8ac69eb694095e62302f73233e39df42cd2d38e3dd1284e2f02558";
+    "87eb55ba9366cd06d5a2e0b69b5fd4c7a6eef59c381e9fd4ea340e9e04ef6dfb";
 const PRODUCT_METADATA_SQL: &str = "CREATE TABLE product_metadata (
     singleton INTEGER PRIMARY KEY NOT NULL CHECK (singleton = 1),
     application TEXT NOT NULL,

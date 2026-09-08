@@ -17,6 +17,7 @@ object NativeBridgeV2 {
         sourceResourceId: String,
         modifiedMs: Long,
     ): Boolean
+    external fun transfer(handle: Long, input: String): String
     external fun enqueue(handle: Long, inputJson: String): String
     external fun next(handle: Long, stagingRoot: String): String
     external fun markUpload(handle: Long, jobId: String, uploadId: String): String

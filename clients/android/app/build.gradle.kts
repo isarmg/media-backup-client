@@ -4,14 +4,14 @@ plugins {
 }
 
 // Distribution versions must not silently change the persisted mobile state identity.
-// Rust crates and MobileContractV02 retain the explicit 0.3.0 / v0.3-r1 contract.
+// Rust crates and MobileContractV02 retain the explicit 0.4.0 / v0.4-r1 contract.
 val workspaceVersion = file("../../../VERSION").readText().trim()
 val emulatorTests = providers.gradleProperty("mediaBackupEmulatorTests").orNull == "true"
 
 val semanticVersion = workspaceVersion.substringBefore('-').split('.').map(String::toInt)
 require(semanticVersion.size == 3) { "Workspace version must use major.minor.patch" }
-require(workspaceVersion == "0.3.2") {
-    "This release builds Media Backup Client 0.3.2"
+require(workspaceVersion == "0.4.0") {
+    "This release builds Media Backup Client 0.4.0"
 }
 
 val releasePkcs12Path = providers
@@ -109,6 +109,9 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.10.0")
     implementation("androidx.work:work-runtime-ktx:2.11.2")
     implementation("androidx.security:security-crypto:1.1.0")
+    implementation("androidx.media3:media3-exoplayer:1.9.2")
+    implementation("androidx.media3:media3-ui:1.9.2")
+    implementation("androidx.media3:media3-datasource-okhttp:1.9.2")
     implementation("com.squareup.okhttp3:okhttp:5.1.0")
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test:runner:1.6.2")

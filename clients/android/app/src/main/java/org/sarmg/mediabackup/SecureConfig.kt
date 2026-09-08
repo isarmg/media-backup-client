@@ -29,6 +29,15 @@ class SecureConfig(context: Context) {
         EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
     )
 
+    companion object { private val connectionLock = Any() }
+    data class Connection(val server: String, val username: String, val password: String, val token: String,
+        val accountId: String, val deviceId: String) { val profile get() = profileKey(server, username) }
+    val profile: String get() = synchronized(connectionLock) { profileKey(serverUrl, username) }
+    fun connection(): Connection = synchronized(connectionLock) { Connection(serverUrl, username, password, bearerToken, accountId, deviceId) }
+    fun saveCredentials(server: String, user: String, secret: String) = synchronized(connectionLock) {
+        serverUrl = server; username = user; password = secret
+    }
+
     var serverUrl: String
         get() = preferences.getString("server_url", "") ?: ""
         set(value) {
@@ -58,6 +67,17 @@ class SecureConfig(context: Context) {
     var bearerToken: String
         get() = preferences.getString(MobileContractV02.TOKEN_KEY, "") ?: ""
         set(value) = preferences.edit().putString(MobileContractV02.TOKEN_KEY, value).apply()
+
+    var accountId: String
+        get() = preferences.getString("account_id_v04", "") ?: ""
+        set(value) = preferences.edit().putString("account_id_v04", value).apply()
+    var deviceId: String
+        get() = preferences.getString("device_id_v04", "") ?: ""
+        set(value) = preferences.edit().putString("device_id_v04", value).apply()
+    fun acceptBootstrap(api: BackupApi, token: String, expectedProfile: String) = synchronized(connectionLock) {
+        check(profile == expectedProfile) { "账户已切换" }
+        accountId = api.accountId; deviceId = api.deviceId; bearerToken = token
+    }
 
     var autoBackup: Boolean
         get() = preferences.getBoolean("auto_backup", false)

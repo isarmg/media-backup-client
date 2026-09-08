@@ -331,7 +331,7 @@ checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 
 [[package]]
 name = "media-backup-client-core"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -350,7 +350,7 @@ dependencies = [
 
 [[package]]
 name = "media-backup-crypto"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "blake3",
  "media-backup-protocol",
@@ -359,7 +359,7 @@ dependencies = [
 
 [[package]]
 name = "media-backup-mobile"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "jni",
  "media-backup-client-core",

@@ -11,11 +11,16 @@ import java.io.File
 internal object NativeStorage {
     data class Paths(val database: File, val staging: File)
 
-    fun prepare(context: Context): Paths {
+    fun prepare(context: Context, profile: String? = null): Paths {
         val root = context.dataDir.canonicalFile
         check(root.isDirectory) { "应用私有目录不可用" }
-        val databases = privateDirectory(root, "databases")
-        val files = privateDirectory(root, "files")
+        var databases = privateDirectory(root, "databases")
+        var files = privateDirectory(root, "files")
+        if (profile != null) {
+            require(profile.matches(Regex("[0-9a-f]{64}")))
+            databases = privateDirectory(databases, profile)
+            files = privateDirectory(files, profile)
+        }
         return Paths(
             File(databases, MobileContractV02.DATABASE_FILENAME),
             privateDirectory(files, MobileContractV02.STAGING_DIRECTORY),

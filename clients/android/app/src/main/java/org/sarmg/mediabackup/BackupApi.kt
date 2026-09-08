@@ -1,5 +1,6 @@
 package org.sarmg.mediabackup
 
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -9,19 +10,26 @@ import org.json.JSONObject
 import java.io.File
 import java.io.OutputStream
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+import kotlinx.coroutines.suspendCancellableCoroutine
 
 class BackupApi(
     private val serverUrl: String,
     private var bearerToken: String,
-    private val client: OkHttpClient = OkHttpClient.Builder()
+    client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.MINUTES)
         .writeTimeout(10, TimeUnit.MINUTES)
         .build(),
 ) {
+    private val client = client.newBuilder().followRedirects(false).followSslRedirects(false).build()
+    private val origin = serverUrl.toHttpUrl()
     init {
-        require(serverUrl.startsWith("https://")) { "服务器地址必须使用 HTTPS" }
+        require(origin.isHttps && origin.username.isEmpty() && origin.password.isEmpty() && origin.encodedPath == "/" && origin.query == null && origin.fragment == null) { "服务器地址必须使用 HTTPS" }
     }
+    var accountId: String = ""; private set
+    var deviceId: String = ""; private set
     private val jsonType = "application/json".toMediaType()
     private val binaryType = "application/octet-stream".toMediaType()
 
@@ -46,7 +54,9 @@ class BackupApi(
         response.use {
             val text = it.body.string()
             if (!it.isSuccessful) error("设备注册失败: ${it.code} $text")
-            bearerToken = JSONObject(text).getString("bearer_token")
+            val result = JSONObject(text)
+            accountId = result.getString("account_id"); deviceId = result.getString("device_id")
+            bearerToken = result.getString("bearer_token")
             return bearerToken
         }
     }
@@ -81,13 +91,30 @@ class BackupApi(
         return jsonRequest("$serverUrl/v2/albums", "POST", body.toString())
     }
 
-    fun timeline(cursor: String? = null, trashed: Boolean = false): JSONObject {
+    fun timeline(cursor: String? = null, trashed: Boolean = false, favorite: Boolean = false, albumId: String? = null, filters: CloudFilters = CloudFilters()): JSONObject {
         val suffix = buildString {
             append("?limit=100&trashed=").append(trashed)
+            filters.params().forEach { (name, value) -> append("&").append(name).append("=").append(java.net.URLEncoder.encode(value, "UTF-8")) }
+            if (favorite) append("&favorite=true")
+            if (albumId != null) append("&album_id=").append(java.net.URLEncoder.encode(albumId, "UTF-8"))
             if (!cursor.isNullOrBlank()) append("&cursor=").append(java.net.URLEncoder.encode(cursor, "UTF-8"))
         }
         return jsonRequest("$serverUrl/v2/timeline$suffix", "GET", null)
     }
+
+    internal fun get(path: String, allowMissing: Boolean = false): JSONObject? {
+        client.newCall(authenticated(Request.Builder().url(resolve(path))).get().build()).execute().use {
+            if (allowMissing && it.code == 404) return null
+            check(it.isSuccessful) { "图库请求失败：${it.code}" }
+            return JSONObject(it.body.string())
+        }
+    }
+    internal fun devices() = jsonArrayRequest("$serverUrl/v2/devices")
+    internal fun videoFactory(): androidx.media3.datasource.DataSource.Factory =
+        androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(client)
+            .setDefaultRequestProperties(mapOf("Authorization" to "Bearer $bearerToken"))
+
+    fun manifest(resourceId: String): JSONObject = jsonRequest("$serverUrl/v2/resources/$resourceId", "GET", null)
 
     fun sync(after: Long): JSONObject =
         jsonRequest("$serverUrl/v2/sync?after=$after&limit=1000", "GET", null)
@@ -110,6 +137,8 @@ class BackupApi(
     fun duplicateGroups(): org.json.JSONArray =
         jsonArrayRequest("$serverUrl/v2/duplicates?limit=50")
 
+    fun listAlbums(): org.json.JSONArray = jsonArrayRequest("$serverUrl/v2/albums")
+
     fun listTags(): org.json.JSONArray = jsonArrayRequest("$serverUrl/v2/tags")
 
     fun createTag(name: String): JSONObject = jsonRequest(
@@ -128,6 +157,28 @@ class BackupApi(
             if (!it.isSuccessful) error("下载失败: ${it.code} ${it.body.string()}")
             it.body.byteStream().use { input -> input.copyTo(output) }
         }
+    }
+
+    suspend fun downloadCancellable(path: String, output: OutputStream): Unit = suspendCancellableCoroutine { continuation ->
+        val request = authenticated(Request.Builder().url(resolve(path))).get().build()
+        val call = client.newCall(request)
+        continuation.invokeOnCancellation { call.cancel() }
+        call.enqueue(object : okhttp3.Callback {
+            override fun onFailure(call: okhttp3.Call, error: java.io.IOException) {
+                if (continuation.isActive) continuation.resumeWithException(error)
+            }
+            override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                try {
+                    response.use {
+                        check(it.isSuccessful) { "下载失败：${it.code}" }
+                        it.body.byteStream().use { input -> input.copyTo(output) }
+                    }
+                    if (continuation.isActive) continuation.resume(Unit)
+                } catch (error: Exception) {
+                    if (continuation.isActive) continuation.resumeWithException(error)
+                }
+            }
+        })
     }
 
     fun downloadBytes(path: String): ByteArray {
@@ -162,7 +213,12 @@ class BackupApi(
         }
     }
 
-    private fun resolve(path: String): String = if (path.startsWith("http://") || path.startsWith("https://")) path else "$serverUrl$path"
+    internal fun resolve(path: String): String {
+        val url = origin.resolve(path) ?: error("资源地址无效")
+        require(url.isHttps && url.host == origin.host && url.port == origin.port &&
+            url.username.isEmpty() && url.password.isEmpty()) { "资源地址必须与服务器 HTTPS 同源" }
+        return url.toString()
+    }
 
     private fun authenticated(builder: Request.Builder): Request.Builder =
         builder.header("Authorization", "Bearer $bearerToken")

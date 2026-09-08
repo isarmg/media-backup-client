@@ -38,9 +38,9 @@ if grep -R -I -n -E 'com[.]example|Java_com_example_' \
 fi
 
 for required in \
-    'media-backup-mobile-v0.3-r1' \
-    'client-v0.3-r1.sqlite' \
-    'backup-staging-v0.3-r1' \
+    'media-backup-mobile-v0.4-r1' \
+    'client-v0.4-r1.sqlite' \
+    'backup-staging-v0.4-r1' \
     'mb_open_v2' \
     'Java_org_sarmg_mediabackup_NativeBridgeV2_open' \
     'org.sarmg.mediabackup'; do
@@ -59,6 +59,16 @@ grep -q -F 'assembleRelease' .github/workflows/release.yml \
     || fail "the formal Android release is not a signed release APK build"
 if grep -q -E 'assembleDebug|app-debug[.]apk|PHOTO_ANDROID_' .github/workflows/release.yml; then
     fail "the formal release workflow still contains a debug or old Android signing path"
+fi
+
+for workflow in .github/workflows/build.yml .github/workflows/release.yml; do
+    grep -q -F 'python3 scripts/package-ios-ipa.py' "$workflow" \
+        || fail "$workflow must package the device app as an IPA"
+    grep -q -F 'path: dist/*.ipa' "$workflow" \
+        || fail "$workflow must upload the IPA artifact"
+done
+if grep -q -F 'unsigned.tar.gz' .github/workflows/release.yml; then
+    fail "iOS releases must publish IPA files rather than app tarballs"
 fi
 
 echo "mobile v0.2 ABI and state-epoch static gate passed"

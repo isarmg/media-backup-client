@@ -42,9 +42,9 @@ int main(int argc, char **argv) {
     assert(mb_open_v2(raw, SIZE_MAX, raw, 1, &out) == SARMG_FFI_INVALID_ARGUMENT);
     release(&out);
     char path[4096];
-    int length = snprintf(path, sizeof(path), "%s/client-v0.3-r1.sqlite", argv[1]);
+    int length = snprintf(path, sizeof(path), "%s/client-v0.4-r1.sqlite", argv[1]);
     assert(length > 0 && (size_t)length < sizeof(path));
-    const char config[] = "{\"product\":\"media-backup\",\"application_version\":\"0.3.0\",\"revision\":1,\"state_epoch\":\"media-backup-mobile-v0.3-r1\",\"part_size\":16777216}";
+    const char config[] = "{\"product\":\"media-backup\",\"application_version\":\"0.4.0\",\"revision\":1,\"state_epoch\":\"media-backup-mobile-v0.4-r1\",\"part_size\":16777216}";
     assert(mb_open_v2((const uint8_t *)path, (size_t)length, (const uint8_t *)config, sizeof(config) - 1, &out) == SARMG_FFI_OK);
     uint64_t first = out.value;
     assert(first != 0);
@@ -53,6 +53,12 @@ int main(int argc, char **argv) {
     release(&out);
     assert(mb_stats_v2(first, &out) == SARMG_FFI_OK && out.bytes.length > 0);
     assert(out.bytes.data[0] == '{');
+    release(&out);
+    const char command[] = "{\"product\":\"media-backup\",\"application_version\":\"0.4.0\",\"revision\":1,\"state_epoch\":\"media-backup-mobile-v0.4-r1\",\"command\":{\"op\":\"batches\"}}";
+    assert(mb_transfer_v2(first, (const uint8_t *)command, sizeof(command) - 1, &out) == SARMG_FFI_OK);
+    assert(out.bytes.length > 0);
+    release(&out);
+    assert(mb_transfer_v2(first, NULL, 1, &out) == SARMG_FFI_INVALID_ARGUMENT);
     release(&out);
     assert(mb_close_v2(first, &out) == SARMG_FFI_OK);
     release(&out);

@@ -167,3 +167,16 @@ pub extern "system" fn Java_org_sarmg_mediabackup_NativeBridgeV2_stats(
         new_string(env, envelope(stats_impl(handle as u64)?)?)
     })
 }
+
+#[no_mangle]
+pub extern "system" fn Java_org_sarmg_mediabackup_NativeBridgeV2_transfer(
+    mut env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    input: JString,
+) -> jstring {
+    guard(&mut env, std::ptr::null_mut(), |env| {
+        let input = read_string(env, input, ffi::MAX_INPUT_BYTES)?;
+        new_string(env, envelope(transfer_impl(handle as u64, &input)?)?)
+    })
+}

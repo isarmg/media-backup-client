@@ -11,6 +11,7 @@ public final class NativeBridgeV2 {
     private static native long open(String path, String config);
     private static native void close(long handle);
     private static native boolean needs(long handle, String asset, String resource, long modified);
+    private static native String transfer(long handle, String input);
     private static native String enqueue(long handle, String input);
     private static native String next(long handle, String staging);
     private static native String markUpload(long handle, String job, String upload);
@@ -51,14 +52,17 @@ public final class NativeBridgeV2 {
         expect(IllegalStateException.class, () -> markFailed(0, "job", "private-secret", true));
         expect(IllegalArgumentException.class, () -> enqueue(0, "private-secret"));
         expect(IllegalArgumentException.class, () -> next(0, "private-secret"));
-        Path absent = Path.of(args[0], "absent", "client-v0.3-r1.sqlite");
+        Path absent = Path.of(args[0], "absent", "client-v0.4-r1.sqlite");
         expect(IllegalArgumentException.class, () -> open(absent.toString(), "private-secret"));
         if (Files.exists(absent.getParent())) throw new AssertionError("invalid config wrote state");
-        String path = Path.of(args[0], "client-v0.3-r1.sqlite").toString();
-        String config = "{\"product\":\"media-backup\",\"application_version\":\"0.3.0\",\"revision\":1,\"state_epoch\":\"media-backup-mobile-v0.3-r1\",\"part_size\":16777216}";
+        String path = Path.of(args[0], "client-v0.4-r1.sqlite").toString();
+        String config = "{\"product\":\"media-backup\",\"application_version\":\"0.4.0\",\"revision\":1,\"state_epoch\":\"media-backup-mobile-v0.4-r1\",\"part_size\":16777216}";
         long first = open(path, config);
         if (first == 0 || !needs(first, "中文😀", "resource", 1)) throw new AssertionError("valid Unicode query failed");
         if (!stats(first).contains("\"ok\":true")) throw new AssertionError("invalid success envelope");
+        String command = config.substring(0, config.lastIndexOf(",\"part_size\"")) + ",\"command\":{\"op\":\"batches\"}}";
+        if (!transfer(first, command).contains("\"value\":[]")) throw new AssertionError("batch command failed");
+        expect(IllegalArgumentException.class, () -> transfer(first, "{\"unknown\":true}"));
         close(first);
         expect(IllegalStateException.class, () -> close(first));
         long second = open(path, config);

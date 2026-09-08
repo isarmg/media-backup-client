@@ -4,18 +4,18 @@ import org.json.JSONObject
 
 object MobileContractV02 {
     const val PRODUCT = "media-backup"
-    const val APPLICATION_VERSION = "0.3.0"
+    const val APPLICATION_VERSION = "0.4.0"
     const val REVISION = 1
-    const val STATE_EPOCH = "media-backup-mobile-v0.3-r1"
+    const val STATE_EPOCH = "media-backup-mobile-v0.4-r1"
 
-    const val DATABASE_FILENAME = "client-v0.3-r1.sqlite"
-    const val STAGING_DIRECTORY = "backup-staging-v0.3-r1"
+    const val DATABASE_FILENAME = "client-v0.4-r1.sqlite"
+    const val STAGING_DIRECTORY = "backup-staging-v0.4-r1"
     const val PREFERENCES_FILE = "media_backup_secure_v0_2_r2"
-    const val TOKEN_KEY = "bearer_token_v0_2_r2"
-    const val WORK_TAG = "media-backup-v0.3-r1"
-    const val NOW_WORK = "media-backup-now-v0.3-r1"
-    const val PERIODIC_WORK = "media-backup-periodic-v0.3-r1"
-    const val NOTIFICATION_CHANNEL = "media-backup-v0.3-r1"
+    const val TOKEN_KEY = "bearer_token_v0_4_r1"
+    const val WORK_TAG = "media-backup-v0.4-r1"
+    const val NOW_WORK = "media-backup-now-v0.4-r1"
+    const val PERIODIC_WORK = "media-backup-periodic-v0.4-r1"
+    const val NOTIFICATION_CHANNEL = "media-backup-v0.4-r1"
 
     fun putIdentity(target: JSONObject): JSONObject = target
         .put("product", PRODUCT)

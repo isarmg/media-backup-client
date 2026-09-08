@@ -25,6 +25,7 @@ data class ScanResult(
     val skipped: Int,
     val limitReached: Boolean,
     val albums: Map<String, ScannedAlbum>,
+    val error: String? = null,
 )
 
 data class ScannedAlbum(val name: String, val sourceAssetIds: Set<String>)
@@ -35,6 +36,7 @@ class MediaScanner(private val context: Context) {
         var discovered = 0
         var discoveredBytes = 0L
         var skipped = 0
+        var failure: String? = null
         val albums = mutableMapOf<String, MutableAlbum>()
         if (options.includePhotos) {
             val result = scanCollection(
@@ -49,6 +51,7 @@ class MediaScanner(private val context: Context) {
             discoveredBytes += result.bytes
             skipped += result.skipped
             mergeAlbums(albums, result.albums)
+            failure = failure ?: result.error
         }
         if (options.includeVideos && discovered < options.maxItems) {
             val result = scanCollection(
@@ -63,6 +66,7 @@ class MediaScanner(private val context: Context) {
             discoveredBytes += result.bytes
             skipped += result.skipped
             mergeAlbums(albums, result.albums)
+            failure = failure ?: result.error
         }
         return ScanResult(
             discovered,
@@ -70,6 +74,7 @@ class MediaScanner(private val context: Context) {
             skipped,
             discovered >= options.maxItems,
             albums.mapValues { ScannedAlbum(it.value.name, it.value.sourceAssetIds) },
+            failure,
         )
     }
 
@@ -88,6 +93,7 @@ class MediaScanner(private val context: Context) {
             MediaStore.MediaColumns.SIZE,
             MediaStore.MediaColumns.DATE_MODIFIED,
             MediaStore.MediaColumns.DATE_ADDED,
+            MediaStore.Images.ImageColumns.DATE_TAKEN,
             MediaStore.Images.ImageColumns.BUCKET_DISPLAY_NAME,
             MediaStore.Images.ImageColumns.BUCKET_ID,
         )
@@ -95,6 +101,7 @@ class MediaScanner(private val context: Context) {
         var queued = 0
         var bytes = 0L
         var skipped = 0
+        var failure: String? = null
         val albums = mutableMapOf<String, MutableAlbum>()
         try {
             context.contentResolver.query(
@@ -108,6 +115,7 @@ class MediaScanner(private val context: Context) {
             val nameColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
             val mimeColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.MIME_TYPE)
             val modifiedColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_MODIFIED)
+            val takenColumn = cursor.getColumnIndex(MediaStore.Images.ImageColumns.DATE_TAKEN)
             val createdColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_ADDED)
             val bucketColumn = cursor.getColumnIndex(MediaStore.Images.ImageColumns.BUCKET_DISPLAY_NAME)
             val bucketIdColumn = cursor.getColumnIndex(MediaStore.Images.ImageColumns.BUCKET_ID)
@@ -125,18 +133,31 @@ class MediaScanner(private val context: Context) {
                 if (!options.cameraOnly && bucketId !in options.selectedAlbumIds) continue
                 val uri = ContentUris.withAppendedId(collection, cursor.getLong(idColumn))
                 val sourceId = uri.toString()
+                if (TransferStore.gallery(handle, "is_excluded", JSONObject().put("source_id", sourceId)) == true) continue
                 val modifiedMs = cursor.getLong(modifiedColumn) * 1000L
+                val createdMs = if (takenColumn >= 0 && cursor.getLong(takenColumn) > 0) cursor.getLong(takenColumn) else cursor.getLong(createdColumn) * 1000L
                 if (bucketId != null && bucketName != null) {
                     albums.getOrPut(bucketId) { MutableAlbum(bucketName) }.sourceAssetIds += sourceId
                 }
+                TransferStore.gallery(handle, "declare_resources", JSONObject().put("source_id", sourceId).put("modified_ms", modifiedMs).put("originals", 1))
                 val thumbnailId = "$sourceId#thumbnail-v1"
                 val needsPrimary = NativeBridgeV2.needs(handle, sourceId, sourceId, modifiedMs)
                 val needsThumbnail = NativeBridgeV2.needs(handle, sourceId, thumbnailId, modifiedMs)
                 if (!needsPrimary && !needsThumbnail) continue
                 val output = File(sourceDir, UUID.randomUUID().toString())
+                var primaryEnqueued = false
                 try {
                     context.contentResolver.openInputStream(uri)?.use { input ->
-                        output.outputStream().use { target -> input.copyTo(target) }
+                        output.outputStream().use { target ->
+                            val budget = minOf(2L * 1024 * 1024 * 1024, (sourceDir.usableSpace - 128L * 1024 * 1024) / 2)
+                            val buffer = ByteArray(64 * 1024)
+                            var bytes = 0L
+                            while (true) {
+                                val n = input.read(buffer); if (n < 0) break
+                                bytes += n; check(bytes <= budget) { "媒体超过暂存预算" }
+                                target.write(buffer, 0, n)
+                            }
+                        }
                     } ?: continue
                     val metadata = JSONObject()
                         .put("android_uri", sourceId)
@@ -154,11 +175,12 @@ class MediaScanner(private val context: Context) {
                             output,
                             cursor.getString(nameColumn) ?: "media",
                             cursor.getString(mimeColumn) ?: "application/octet-stream",
-                            cursor.getLong(createdColumn) * 1000L,
+                            createdMs,
                             modifiedMs,
                             metadata,
                             true,
                         )
+                        primaryEnqueued = true
                         queued++
                         bytes += output.length()
                     }
@@ -173,7 +195,7 @@ class MediaScanner(private val context: Context) {
                                 thumbnail,
                                 "${cursor.getString(nameColumn) ?: "media"}.thumbnail.jpg",
                                 "image/jpeg",
-                                cursor.getLong(createdColumn) * 1000L,
+                                createdMs,
                                 modifiedMs,
                                 JSONObject().put("thumbnail_of", sourceId),
                                 true,
@@ -184,15 +206,17 @@ class MediaScanner(private val context: Context) {
                         if (!needsPrimary) output.delete()
                     }
                 } catch (error: Exception) {
-                    output.delete()
+                    if (!primaryEnqueued) output.delete()
+                    failure = failure ?: error.message ?: "无法准备媒体"
                     skipped++
                 }
             }
         }
         } catch (error: SecurityException) {
+            failure = "需要重新授权访问照片或视频"
             skipped++
         }
-        return CollectionResult(queued, bytes, skipped, albums)
+        return CollectionResult(queued, bytes, skipped, albums, failure)
     }
 
     private fun isCameraMedia(bucketName: String?, relativePath: String?): Boolean {
@@ -200,7 +224,7 @@ class MediaScanner(private val context: Context) {
         return bucketName.equals("Camera", ignoreCase = true)
     }
 
-    private fun enqueue(
+    internal fun enqueue(
         handle: Long,
         sourceAssetId: String,
         sourceResourceId: String,
@@ -213,6 +237,8 @@ class MediaScanner(private val context: Context) {
         modifiedMs: Long,
         metadata: JSONObject,
         removeSource: Boolean,
+        batch: String? = null,
+        item: String? = null,
     ) {
         val input = MobileContractV02.putIdentity(JSONObject())
             .put("source_asset_id", sourceAssetId)
@@ -227,10 +253,11 @@ class MediaScanner(private val context: Context) {
             .put("source_size", file.length())
             .put("metadata_json", metadata.toString())
             .put("remove_source_after_prepare", removeSource)
+            .put("batch_id", batch ?: JSONObject.NULL).put("batch_item_id", item ?: JSONObject.NULL)
         MobileContractV02.requireEnvelope(NativeBridgeV2.enqueue(handle, input.toString()))
     }
 
-    private fun createThumbnail(source: File, mediaKind: String, sourceDir: File): File? {
+    internal fun createThumbnail(source: File, mediaKind: String, sourceDir: File): File? {
         val bitmap = if (mediaKind == "video") {
             ThumbnailUtils.createVideoThumbnail(source.absolutePath, MediaStore.Video.Thumbnails.MINI_KIND)
         } else {
@@ -265,5 +292,6 @@ class MediaScanner(private val context: Context) {
         val bytes: Long,
         val skipped: Int,
         val albums: Map<String, MutableAlbum>,
+        val error: String?,
     )
 }

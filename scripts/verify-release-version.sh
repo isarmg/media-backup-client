@@ -3,8 +3,8 @@ set -euo pipefail
 
 release_tag="${1:-${GITHUB_REF_NAME:-}}"
 
-if [[ "$release_tag" != "v0.3.2" ]]; then
-  echo "This release workflow only accepts the immutable Media Backup Client v0.3.2 tag (received: ${release_tag:-<empty>})." >&2
+if [[ "$release_tag" != "v0.4.0" ]]; then
+  echo "This release workflow only accepts the immutable Media Backup Client v0.4.0 tag (received: ${release_tag:-<empty>})." >&2
   exit 1
 fi
 
@@ -28,11 +28,11 @@ if [[ -z "$cargo_version" || -z "$ios_version" ]]; then
   exit 1
 fi
 
-if ! [[ "$release_version" == "$distribution_version" && "$release_version" == "$ios_version" && "$cargo_version" == "0.3.0" ]]; then
+if ! [[ "$release_version" == "$distribution_version" && "$release_version" == "$ios_version" && "$cargo_version" == "0.4.0" ]]; then
   echo "Release versions do not match:" >&2
   echo "  tag:   $release_version" >&2
   echo "  VERSION: $distribution_version" >&2
-  echo "  Rust/state contract (must remain 0.3.0): $cargo_version" >&2
+  echo "  Rust/state contract (must remain 0.4.0): $cargo_version" >&2
   echo "  iOS:   $ios_version" >&2
   exit 1
 fi

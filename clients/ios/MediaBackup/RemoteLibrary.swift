@@ -13,12 +13,15 @@ struct RemoteResource: Decodable, Identifiable {
     let contentSize: UInt64
     let storageEncoding: StorageEncoding
     let contentPath: String
+    let metadata: JSONValue?
 
     var id: UUID { resourceId }
 }
 
 struct RemoteAsset: Decodable, Identifiable {
     let assetId: UUID
+    let sourceAssetId: String
+    let mediaKind: String
     let sourceCreatedAtMs: Int64
     let favorite: Bool
     let archived: Bool
@@ -35,14 +38,11 @@ struct RemoteAsset: Decodable, Identifiable {
     var thumbnail: RemoteResource? { resources.first(where: { $0.role == "thumbnail" }) }
 }
 
-private struct TimelinePage: Decodable {
+struct TimelinePage: Decodable {
     let items: [RemoteAsset]
     let nextCursor: String?
-}
-
-private struct SyncPage: Decodable {
-    let nextSequence: Int64
-    let hasMore: Bool
+    var cached = false
+    enum CodingKeys: String, CodingKey { case items, nextCursor }
 }
 
 struct RemoteLibrary {
@@ -55,46 +55,53 @@ struct RemoteLibrary {
         return value
     }()
 
-    func timeline(trashed: Bool) async throws -> [RemoteAsset] {
-        var result: [RemoteAsset] = []
-        var cursor: String?
-        repeat {
-            var components = URLComponents(url: serverURL.appending(path: "/v2/timeline"), resolvingAgainstBaseURL: false)
-            components?.queryItems = [
-                URLQueryItem(name: "trashed", value: trashed ? "true" : "false"),
-                URLQueryItem(name: "limit", value: "100"),
-                cursor.map { URLQueryItem(name: "cursor", value: $0) },
-            ].compactMap { $0 }
-            guard let url = components?.url else { throw RemoteLibraryError.invalidURL }
-            let (data, response) = try await URLSession.shared.data(for: authorized(url: url, method: "GET"))
+    func loadTimelinePage(cursor: String? = nil, trashed: Bool = false, favorite: Bool = false, albumId: UUID? = nil, filters: CloudFilters = CloudFilters(), store: TransferStore? = nil) async throws -> TimelinePage {
+        var components = URLComponents(url: serverURL.appending(path: "/v2/timeline"), resolvingAgainstBaseURL: false)
+        components?.queryItems = [URLQueryItem(name: "trashed", value: trashed ? "true" : "false"),
+            URLQueryItem(name: "limit", value: "100"), cursor.map { URLQueryItem(name: "cursor", value: $0) },
+            favorite ? URLQueryItem(name: "favorite", value: "true") : nil,
+            albumId.map { URLQueryItem(name: "album_id", value: $0.uuidString) }].compactMap { $0 }
+        components?.queryItems?.append(contentsOf: filters.queryItems)
+        let key = components?.queryItems?.filter { $0.name != "cursor" }.map { "\($0.name)=\($0.value ?? "")" }.joined(separator: "&") ?? ""
+        guard let url = components?.url else { throw RemoteLibraryError.invalidURL }
+        do {
+            let (data, response) = try await SecureSession.shared.data(for: authorized(url: url, method: "GET"))
             try requireSuccess(response, data: data)
+            let raw = try JSONSerialization.jsonObject(with: data) as! [String: Any]
             let page = try decoder.decode(TimelinePage.self, from: data)
-            result.append(contentsOf: page.items)
-            guard page.nextCursor == nil || page.nextCursor != cursor else {
-                throw RemoteLibraryError.invalidCursor
-            }
-            cursor = page.nextCursor
-        } while cursor != nil
-        return result
+            guard page.nextCursor == nil || page.nextCursor != cursor else { throw RemoteLibraryError.invalidCursor }
+            try store?.gallery(["op": "save_page", "query_key": key, "cursor": cursor as Any? ?? NSNull(),
+                "items": raw["items"]!, "next_cursor": raw["next_cursor"] ?? NSNull()])
+            return page
+        } catch {
+            try Task.checkCancellation()
+            guard let raw = try store?.gallery(["op": "read_page", "query_key": key, "cursor": cursor as Any? ?? NSNull()]) as? [String: Any] else { throw error }
+            var page = try decoder.decode(TimelinePage.self, from: JSONSerialization.data(withJSONObject: raw))
+            page.cached = true
+            return page
+        }
     }
 
-    func advanceSync(from initialSequence: Int64) async throws -> Int64 {
-        var sequence = initialSequence
-        var more: Bool
-        repeat {
-            var components = URLComponents(url: serverURL.appending(path: "/v2/sync"), resolvingAgainstBaseURL: false)
-            components?.queryItems = [
-                URLQueryItem(name: "after", value: String(sequence)),
-                URLQueryItem(name: "limit", value: "1000"),
-            ]
-            guard let url = components?.url else { throw RemoteLibraryError.invalidURL }
-            let (data, response) = try await URLSession.shared.data(for: authorized(url: url, method: "GET"))
-            try requireSuccess(response, data: data)
-            let page = try decoder.decode(SyncPage.self, from: data)
-            sequence = page.nextSequence
-            more = page.hasMore
-        } while more
-        return sequence
+    func json(_ path: String, allowMissing: Bool = false) async throws -> Any? {
+        let (data, response) = try await SecureSession.shared.data(for: authorized(url: SecureSession.resolve(path, base: serverURL), method: "GET"))
+        if allowMissing, (response as? HTTPURLResponse)?.statusCode == 404 { return nil }
+        try requireSuccess(response, data: data)
+        return try JSONSerialization.jsonObject(with: data)
+    }
+    func previewFile(_ resource: RemoteResource) async throws -> URL {
+        let request = try authorized(url: SecureSession.resolve("/v2/resources/\(resource.id)/preview", base: serverURL), method: "GET")
+        return try await BoundedDownload.fetch(request, maximum: 8 * 1024 * 1024)
+    }
+
+    func albums() async throws -> [RemoteAlbum] {
+        let (data, response) = try await SecureSession.shared.data(for: authorized(url: serverURL.appending(path: "/v2/albums"), method: "GET"))
+        try requireSuccess(response, data: data)
+        return try decoder.decode([RemoteAlbum].self, from: data)
+    }
+
+    func imageFile(_ resource: RemoteResource, maximum: Int64) async throws -> URL {
+        let request = try authorized(url: SecureSession.resolve(resource.contentPath, base: serverURL), method: "GET")
+        return try await BoundedDownload.fetch(request, maximum: maximum)
     }
 
     func setFavorite(asset: RemoteAsset, value: Bool) async throws {
@@ -108,7 +115,7 @@ struct RemoteLibrary {
     func addTag(named rawName: String, to asset: RemoteAsset) async throws {
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
-        let (listData, listResponse) = try await URLSession.shared.data(for: authorized(
+        let (listData, listResponse) = try await SecureSession.shared.data(for: authorized(
             url: serverURL.appending(path: "/v2/tags"),
             method: "GET"
         ))
@@ -118,10 +125,10 @@ struct RemoteLibrary {
         if let existing = tags.first(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }) {
             tag = existing
         } else {
-            var request = authorized(url: serverURL.appending(path: "/v2/tags"), method: "POST")
+            var request = try authorized(url: serverURL.appending(path: "/v2/tags"), method: "POST")
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONSerialization.data(withJSONObject: ["name": name])
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await SecureSession.shared.data(for: request)
             try requireSuccess(response, data: data)
             tag = try decoder.decode(RemoteTag.self, from: data)
         }
@@ -129,7 +136,7 @@ struct RemoteLibrary {
     }
 
     func duplicateGroupCount() async throws -> Int {
-        let (data, response) = try await URLSession.shared.data(for: authorized(
+        let (data, response) = try await SecureSession.shared.data(for: authorized(
             url: serverURL.appending(path: "/v2/duplicates"),
             method: "GET"
         ))
@@ -139,8 +146,8 @@ struct RemoteLibrary {
 
     func thumbnailData(for asset: RemoteAsset) async throws -> Data? {
         guard let thumbnail = asset.thumbnail else { return nil }
-        let (data, response) = try await URLSession.shared.data(for: authorized(
-            url: serverURL.appending(path: thumbnail.contentPath),
+        let (data, response) = try await SecureSession.shared.data(for: authorized(
+            url: SecureSession.resolve(thumbnail.contentPath, base: serverURL),
             method: "GET"
         ))
         try requireSuccess(response, data: data)
@@ -155,7 +162,7 @@ struct RemoteLibrary {
         try await send(path: "/v2/assets/\(asset.assetId)/restore", method: "POST")
     }
 
-    func restoreToPhotos(asset: RemoteAsset) async throws -> String {
+    func restoreToPhotos(asset: RemoteAsset, progress: ((Int64) -> Void)? = nil) async throws -> String {
         guard let resource = asset.primary else { throw RemoteLibraryError.noPrimaryResource }
         let suffix = URL(fileURLWithPath: resource.filename).pathExtension
         let temporary = FileManager.default.temporaryDirectory
@@ -163,11 +170,12 @@ struct RemoteLibrary {
             .appendingPathExtension(suffix.isEmpty ? "bin" : suffix)
         defer { try? FileManager.default.removeItem(at: temporary) }
 
-        let (downloaded, response) = try await URLSession.shared.download(for: authorized(
-            url: serverURL.appending(path: resource.contentPath),
-            method: "GET"
-        ))
-        try requireSuccess(response, data: Data())
+        let downloaded = try await BoundedDownload.fetch(authorized(
+            url: SecureSession.resolve(resource.contentPath, base: serverURL), method: "GET"),
+            maximum: Int64(resource.contentSize), progress: progress)
+        defer { try? FileManager.default.removeItem(at: downloaded) }
+        let actual = try downloaded.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+        guard UInt64(actual) == resource.contentSize else { throw CoordinatorFailure.message("原件下载长度不匹配") }
         try FileManager.default.moveItem(at: downloaded, to: temporary)
         try await PHPhotoLibrary.shared().performChanges {
             if resource.mimeType.hasPrefix("video/") {
@@ -180,22 +188,23 @@ struct RemoteLibrary {
     }
 
     private func send(path: String, method: String) async throws {
-        var request = authorized(url: serverURL.appending(path: path), method: method)
+        var request = try authorized(url: serverURL.appending(path: path), method: method)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = Data("{}".utf8)
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await SecureSession.shared.data(for: request)
         try requireSuccess(response, data: data)
     }
 
     private func sendJSON(path: String, method: String, body: [String: Any]) async throws {
-        var request = authorized(url: serverURL.appending(path: path), method: method)
+        var request = try authorized(url: serverURL.appending(path: path), method: method)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await SecureSession.shared.data(for: request)
         try requireSuccess(response, data: data)
     }
 
-    private func authorized(url: URL, method: String) -> URLRequest {
+    private func authorized(url: URL, method: String) throws -> URLRequest {
+        _ = try SecureSession.resolve(url.absoluteString, base: serverURL)
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -228,4 +237,10 @@ enum RemoteLibraryError: LocalizedError {
         case .server(let message): message.isEmpty ? "服务器请求失败" : message
         }
     }
+}
+
+struct RemoteAlbum: Decodable, Identifiable {
+    let albumId: UUID
+    let name: String
+    var id: UUID { albumId }
 }

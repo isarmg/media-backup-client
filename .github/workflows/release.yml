@@ -3,11 +3,11 @@ name: Release
 on:
   push:
     tags:
-      - "v0.3.2"
+      - "v0.4.0"
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing immutable version tag to publish (must be v0.3.2)
+        description: Existing immutable version tag to publish (must be v0.4.0)
         required: true
         type: string
 
@@ -41,6 +41,7 @@ jobs:
       - run: ./scripts/verify-release-version.sh "$RELEASE_TAG"
       - run: ./scripts/check-mobile-v02-contract.sh
       - run: ./scripts/check-workflow-supply-chain.sh
+      - run: python3 scripts/test-package-ios-ipa.py
       - run: cargo fmt --all -- --check
       - run: cargo check --workspace --locked
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
@@ -134,7 +135,7 @@ jobs:
           if-no-files-found: error
 
   ios:
-    name: iOS unsigned app
+    name: iOS unsigned IPA
     needs: validate
     runs-on: macos-15
     timeout-minutes: 90
@@ -157,15 +158,17 @@ jobs:
       - run: cd clients/ios && xcodegen generate
       - name: Build without signing
         run: xcodebuild -project clients/ios/MediaBackup.xcodeproj -scheme MediaBackup -sdk iphoneos -configuration Release CODE_SIGNING_ALLOWED=NO -derivedDataPath clients/ios/DerivedData build
-      - name: Package app
+      - name: Package unsigned IPA
         run: |
           version="${RELEASE_TAG#v}"
-          mkdir -p dist
-          tar -C clients/ios/DerivedData/Build/Products/Release-iphoneos -czf "dist/media-backup-ios-${version}-unsigned.tar.gz" MediaBackup.app
+          python3 scripts/package-ios-ipa.py \
+            --app clients/ios/DerivedData/Build/Products/Release-iphoneos/MediaBackup.app \
+            --version "$version" \
+            --output "dist/media-backup-ios-${version}-unsigned.ipa"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-ios
-          path: dist/*.tar.gz
+          path: dist/*.ipa
           if-no-files-found: error
 
   publish:
@@ -196,4 +199,4 @@ jobs:
             echo "Refusing to reuse or overwrite existing release $RELEASE_TAG" >&2
             exit 1
           fi
-          gh release create "$RELEASE_TAG" dist/* --verify-tag --notes-file docs/releases/0.3.2.md --title "$RELEASE_TAG"
+          gh release create "$RELEASE_TAG" dist/* --verify-tag --notes-file docs/releases/0.4.0.md --title "$RELEASE_TAG"

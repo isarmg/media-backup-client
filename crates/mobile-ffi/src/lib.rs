@@ -60,6 +60,26 @@ fn enqueue_impl(handle: u64, input: &str) -> Result<Value, FfiError> {
         a.enqueue(input).map(Value::String).map_err(internal)
     })
 }
+fn transfer_impl(handle: u64, input: &str) -> Result<Value, FfiError> {
+    let input = serde_json::from_str(input).map_err(|_| FfiError::invalid_argument())?;
+    with_client(handle, |a| a.transfer(input).map_err(internal))
+}
+#[no_mangle]
+pub unsafe extern "C" fn mb_transfer_v2(
+    handle: u64,
+    input: *const u8,
+    input_len: usize,
+    output: *mut SarmgFfiResultV2,
+) -> i32 {
+    unsafe {
+        ffi::guard(output, || {
+            json_payload(transfer_impl(
+                handle,
+                ffi::checked_utf8(input, input_len, ffi::MAX_INPUT_BYTES)?,
+            )?)
+        })
+    }
+}
 fn next_impl(handle: u64, staging: &str) -> Result<Value, FfiError> {
     require_path(staging, MOBILE_STAGING_DIRECTORY)?;
     with_client(handle, |a| {

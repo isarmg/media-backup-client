@@ -32,146 +32,103 @@ class BackupWorker(context: Context, parameters: WorkerParameters) : CoroutineWo
 
     private suspend fun runBackup(): Result {
         val config = SecureConfig(applicationContext)
-        val startedAt = System.currentTimeMillis()
-        var snapshot = BackupSnapshot(
-            state = "running",
-            message = "正在准备备份",
-            lastRunAt = startedAt,
-        )
-        publish(config, snapshot, "准备", 0, 0)
-        if (config.serverUrl.isBlank() || config.username.isBlank() || config.password.isBlank()) {
-            snapshot = snapshot.copy(state = "error", message = "请先配置服务器地址、账号和密码", failed = 1)
-            config.saveSnapshot(snapshot)
-            return Result.failure(workDataOf(OUTPUT_MESSAGE to snapshot.message))
-        }
-        if (!config.backupPhotos && !config.backupVideos) {
-            snapshot = snapshot.copy(state = "error", message = "至少选择照片或视频中的一种", failed = 1)
-            config.saveSnapshot(snapshot)
-            return Result.failure(workDataOf(OUTPUT_MESSAGE to snapshot.message))
-        }
-        if (!hasMediaAccess(config)) {
-            snapshot = snapshot.copy(state = "error", message = "需要照片和视频访问权限", failed = 1)
-            config.saveSnapshot(snapshot)
-            return Result.failure(workDataOf(OUTPUT_MESSAGE to snapshot.message))
-        }
-        var token = config.bearerToken
-        val api = BackupApi(config.serverUrl, token)
-        var phase = "设备注册"
-        return try {
-            if (token.isBlank()) {
-                publish(config, snapshot.copy(message = "正在注册此设备"), "连接", 0, 0)
-                token = api.bootstrap(config.username, config.password, Build.MODEL)
-                config.bearerToken = token
+        val profile = inputData.getString("profile") ?: return Result.failure()
+        val credentials = config.connection()
+        if (profile != credentials.profile) return Result.failure()
+        val automatic = inputData.getString(BackupScheduler.SOURCE_KEY) == BackupScheduler.SOURCE_AUTOMATIC
+        if (automatic && !config.autoBackup) return Result.success()
+        val session = TransferStore.open(applicationContext, profile)
+        val handle = session.handle
+        val staging = session.paths.staging
+        var snapshot = BackupSnapshot(state = "running", message = "正在准备备份", lastRunAt = System.currentTimeMillis())
+        try {
+            val api = BackupApi(credentials.server, credentials.token)
+            var accountId = credentials.accountId
+            var deviceId = credentials.deviceId
+            if (credentials.token.isBlank()) {
+                val token = api.bootstrap(credentials.username, credentials.password, Build.MODEL)
+                if (config.profile != profile) return Result.failure()
+                config.acceptBootstrap(api, token, profile)
+                accountId = api.accountId; deviceId = api.deviceId
             }
-            phase = "准备本地备份目录"
-            val paths = NativeStorage.prepare(applicationContext)
-            val nativeConfig = MobileContractV02.putIdentity(JSONObject())
-                .put("part_size", 16 * 1024 * 1024)
-            phase = "打开本地备份数据库"
-            val handle = NativeBridgeV2.open(
-                paths.database.absolutePath,
-                nativeConfig.toString(),
-            )
-            if (handle == 0L) error("无法打开 Rust Client")
-            try {
-                val stagingRoot = paths.staging
-                phase = "扫描媒体库"
-                publish(config, snapshot.copy(message = "正在扫描媒体库"), "扫描", 0, 0)
-                val selectedAlbumIds = if (!config.cameraOnly && !config.albumSelectionConfigured) {
-                    DeviceAlbums.list(applicationContext).mapTo(mutableSetOf()) { it.id }
-                        .also { config.selectedAlbumIds = it }
-                } else {
-                    config.selectedAlbumIds
-                }
-                val scan = MediaScanner(applicationContext).scan(
-                    handle,
-                    stagingRoot,
-                    ScanOptions(
-                        includePhotos = config.backupPhotos,
-                        includeVideos = config.backupVideos,
-                        cameraOnly = config.cameraOnly,
-                        selectedAlbumIds = selectedAlbumIds,
-                        maxItems = MAX_SCAN_ITEMS,
-                    ),
-                )
-                snapshot = snapshot.copy(
-                    message = if (scan.discovered == 0) "正在检查待续传项目" else "发现 ${scan.discovered} 个待备份项目",
-                    discovered = scan.discovered,
-                )
-                publish(config, snapshot, "上传", 0, scan.discovered)
-                var queueDrained = false
-                while (snapshot.completed < MAX_UPLOAD_ITEMS) {
-                    if (isStopped) {
-                        config.saveSnapshot(snapshot.copy(state = "idle", message = "备份已停止", currentItem = ""))
-                        return Result.failure(workDataOf(OUTPUT_MESSAGE to "备份已停止"))
-                    }
-                    phase = "准备媒体分块"
-                    val envelope = MobileContractV02.requireEnvelope(
-                        NativeBridgeV2.next(handle, stagingRoot.absolutePath),
-                    )
-                    if (envelope.isNull("value")) {
-                        queueDrained = true
-                        break
-                    }
+            TransferStore.command(handle, "bind", JSONObject().put("server", credentials.server)
+                .put("account_id", accountId).put("device_id", deviceId))
+            var resourceCount = 0
+            suspend fun drain() {
+                while (!isStopped && config.profile == profile && resourceCount < MAX_UPLOAD_ITEMS) {
+                    val envelope = MobileContractV02.requireEnvelope(NativeBridgeV2.next(handle, staging.path))
+                    if (envelope.isNull("value")) break
                     val job = envelope.getJSONObject("value")
                     MobileContractV02.requireIdentity(job)
-                    val filename = job.optJSONObject("request")?.optString("filename", "媒体文件") ?: "媒体文件"
-                    snapshot = snapshot.copy(message = "正在备份 $filename", currentItem = filename)
-                    publish(config, snapshot, "上传", snapshot.completed, maxOf(scan.discovered, 1))
-                    phase = "上传媒体分块"
-                    val uploadedBytes = uploadJob(api, handle, job)
-                    snapshot = snapshot.copy(
-                        completed = snapshot.completed + 1,
-                        uploadedBytes = snapshot.uploadedBytes + uploadedBytes,
-                        message = "已完成 ${snapshot.completed + 1} 项",
-                        currentItem = "",
-                    )
-                    publish(config, snapshot, "上传", snapshot.completed, maxOf(scan.discovered, snapshot.completed))
+                    snapshot = snapshot.copy(message = "正在上传：${job.getJSONObject("request").getString("filename")}")
+                    publish(config, snapshot, "上传资源", 0, 0)
+                    snapshot = snapshot.copy(uploadedBytes = snapshot.uploadedBytes + uploadJob(api, handle, job))
+                    resourceCount++
                 }
-                phase = "同步相册"
-                for ((albumId, album) in scan.albums) {
-                    api.syncAlbum(
-                        albumId,
-                        album.name,
-                        album.sourceAssetIds,
-                        replaceMembers = !scan.limitReached,
-                    )
-                }
-                if (scan.limitReached || !queueDrained) {
-                    snapshot = snapshot.copy(
-                        state = "waiting",
-                        message = "本批已完成，系统将继续处理剩余项目",
-                        currentItem = "",
-                    )
-                    config.saveSnapshot(snapshot)
-                    return Result.retry()
-                }
-            } finally {
-                NativeBridgeV2.close(handle)
             }
-            snapshot = snapshot.copy(
-                state = "success",
-                message = if (snapshot.completed == 0) "所有项目均已备份" else "本次成功备份 ${snapshot.completed} 项",
-                lastSuccessAt = System.currentTimeMillis(),
-                currentItem = "",
-            )
-            config.saveSnapshot(snapshot)
-            Result.success(
-                workDataOf(
-                    OUTPUT_MESSAGE to snapshot.message,
-                    PROGRESS_COMPLETED to snapshot.completed,
-                    PROGRESS_TOTAL to snapshot.discovered,
-                ),
-            )
+            // Always consume durable work first. Manual entry never invokes the automatic scanner.
+            drain()
+            val batches = TransferStore.batches(handle)
+            for (b in 0 until batches.length()) {
+                val batch = batches.getJSONObject(b)
+                if (batch.getBoolean("cancelled")) continue
+                val batchId = batch.getString("id")
+                val items = TransferStore.items(handle, batchId)
+                for (i in 0 until items.length()) {
+                    if (isStopped || config.profile != profile) return Result.failure()
+                    if (resourceCount >= MAX_UPLOAD_ITEMS) return Result.retry()
+                    val item = items.getJSONObject(i)
+                    if (item.getString("state") != "pending") continue
+                    // Recheck cancellation after each resource and before preparing another source.
+                    if (TransferStore.items(handle, batchId).length() == 0) break
+                    try {
+                        snapshot = snapshot.copy(message = "正在准备所选原始文件")
+                        publish(config, snapshot, "准备", 0, 0)
+                        SelectedMedia.prepare(applicationContext, handle, staging, batchId, item)
+                    } catch (error: Exception) {
+                        TransferStore.setItem(handle, batchId, item.getString("id"), "blocked",
+                            error.message ?: "需要重新授权访问")
+                    }
+                    drain()
+                }
+            }
+            var automaticMore = false
+            if (automatic) {
+                if (!hasMediaAccess(config)) {
+                    config.saveSnapshot(snapshot.copy(state = "waiting", message = "自动扫描需要重新授权访问"))
+                    return Result.success()
+                }
+                // Bounded scan/export windows: at most one asset is staged before draining.
+                for (attempt in 0 until MAX_SCAN_ITEMS) {
+                    if (isStopped || config.profile != profile) return Result.failure()
+                    if (resourceCount >= MAX_UPLOAD_ITEMS) return Result.retry()
+                    val scan = MediaScanner(applicationContext).scan(handle, staging, ScanOptions(
+                        config.backupPhotos, config.backupVideos, config.cameraOnly, config.selectedAlbumIds, 1))
+                    drain()
+                    for ((id, album) in scan.albums) {
+                        api.syncAlbum(id, album.name, album.sourceAssetIds, replaceMembers = false)
+                    }
+                    if (scan.error != null) {
+                        config.saveSnapshot(snapshot.copy(state = "waiting", message = scan.error))
+                        return Result.success()
+                    }
+                    automaticMore = scan.limitReached
+                    if (!scan.limitReached) break
+                }
+            }
+            if (config.profile != profile) return Result.failure()
+            val stats = MobileContractV02.requireEnvelope(NativeBridgeV2.stats(handle)).getJSONObject("value")
+            val waiting = automaticMore || stats.getLong("retry_wait") > 0 || stats.getLong("ready") > 0 || stats.getLong("discovered") > 0
+            config.saveSnapshot(snapshot.copy(state = if (waiting) "waiting" else "success",
+                message = if (waiting) "等待网络或系统重试；逐项结果见传输列表" else "本轮处理结束；逐项结果见传输列表",
+                lastSuccessAt = if (waiting) 0 else System.currentTimeMillis()))
+            return if (waiting) Result.retry() else Result.success()
+        } catch (error: kotlinx.coroutines.CancellationException) {
+            throw error
         } catch (error: Exception) {
-            snapshot = snapshot.copy(
-                state = "error",
-                message = "$phase：${error.message ?: "备份失败，等待系统重试"}".take(180),
-                failed = snapshot.failed + 1,
-                currentItem = "",
-            )
-            config.saveSnapshot(snapshot)
-            Result.retry()
+            if (config.profile == profile) config.saveSnapshot(snapshot.copy(state = "waiting",
+                message = error.message ?: "等待网络或系统调度"))
+            return Result.retry()
         }
     }
 
@@ -180,7 +137,7 @@ class BackupWorker(context: Context, parameters: WorkerParameters) : CoroutineWo
         try {
             val create = api.createUpload(job.getJSONObject("request").toString())
             if (create.getString("disposition") == "complete") {
-                MobileContractV02.requireEnvelope(NativeBridgeV2.markComplete(handle, jobId))
+                TransferStore.receipt(handle, job, api.manifest(create.getString("resource_id")))
                 return 0L
             }
             val uploadId = create.getString("upload_id")
@@ -196,12 +153,15 @@ class BackupWorker(context: Context, parameters: WorkerParameters) : CoroutineWo
             for (position in 0 until missing.length()) {
                 val index = missing.getInt(position)
                 val file = files[index] ?: error("缺少本地分块 $index")
+                if (isStopped || SecureConfig(applicationContext).profile != inputData.getString("profile") ||
+                    TransferStore.command(handle, "active", JSONObject().put("job_id", jobId)) != true) {
+                    error("本次上传已取消或账户已切换")
+                }
                 api.uploadPart(uploadId, index, file)
                 uploadedBytes += file.length()
                 MobileContractV02.requireEnvelope(NativeBridgeV2.markPart(handle, jobId, index))
             }
-            api.complete(uploadId)
-            MobileContractV02.requireEnvelope(NativeBridgeV2.markComplete(handle, jobId))
+            TransferStore.receipt(handle, job, api.complete(uploadId))
             return uploadedBytes
         } catch (error: Exception) {
             MobileContractV02.requireEnvelope(

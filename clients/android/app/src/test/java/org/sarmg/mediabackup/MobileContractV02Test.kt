@@ -16,8 +16,8 @@ class MobileContractV02Test {
             currentDatabase.writeText("current sqlite bytes")
             assertTrue(currentStaging.mkdir())
 
-            assertEquals("client-v0.3-r1.sqlite", currentDatabase.name)
-            assertEquals("backup-staging-v0.3-r1", currentStaging.name)
+            assertEquals("client-v0.4-r1.sqlite", currentDatabase.name)
+            assertEquals("backup-staging-v0.4-r1", currentStaging.name)
             assertEquals(sandbox.canonicalFile, currentDatabase.parentFile.canonicalFile)
             assertEquals(sandbox.canonicalFile, currentStaging.parentFile.canonicalFile)
             assertTrue(currentDatabase.isFile)

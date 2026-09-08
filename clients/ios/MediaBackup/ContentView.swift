@@ -1,189 +1,116 @@
 import SwiftUI
-import UIKit
+import PhotosUI
+import UniformTypeIdentifiers
 
 struct ContentView: View {
     @EnvironmentObject private var coordinator: BackupCoordinator
-
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var tab = 0
+    @State private var picker = false
+    @AppStorage("gallery_cache_mib") private var cacheLimit = 256
+    @State private var confirmPicker = false
+    @State private var selection: [PHPickerResult] = []
     var body: some View {
-        ZStack {
-            LinearGradient(
-                colors: [Color(red: 0.96, green: 0.89, blue: 0.78), Color(red: 0.85, green: 0.94, blue: 0.89)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("私有照片仓库")
-                            .font(.system(size: 38, weight: .black, design: .rounded))
-                        Text("HTTPS 加密传输 · 服务端原始文件 · 可中断续传")
-                            .foregroundStyle(Color(red: 0.18, green: 0.34, blue: 0.28))
-                    }
-
-                    connectionCard
-                    albumCard
-                    libraryCard
-                }
-                .padding(24)
-            }
+        TabView(selection: $tab) {
+            LocalGalleryScreen(onSubmitted: { tab = 2 }, onSystemPicker: { selection = []; picker = true }).id(coordinator.profile).tabItem { Label("本地", systemImage: "photo.on.rectangle") }.tag(0)
+            CloudGalleryScreen().id(coordinator.profile).padding().tabItem { Label("云端", systemImage: "cloud") }.tag(1)
+            transfers.tabItem { Label("传输", systemImage: "arrow.up.arrow.down") }.tag(2)
+            settings.tabItem { Label("设置", systemImage: "gear") }.tag(3)
         }
-        .task { await coordinator.refreshAlbums() }
+        .sheet(isPresented: $picker, onDismiss: { confirmPicker = !selection.isEmpty }) {
+            SelectedMediaPicker { results in selection = results; picker = false }
+        }
+        .sheet(isPresented: $confirmPicker, onDismiss: { selection = [] }) { local }
+        .onChange(of: coordinator.profile) { _, _ in selection = [] }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { coordinator.refreshTransfers() }
+        }
     }
-
-    private var connectionCard: some View {
-        VStack(spacing: 16) {
-            TextField("服务端 HTTPS 地址", text: $coordinator.serverURL)
-                .textInputAutocapitalization(.never)
-                .keyboardType(.URL)
-                .textFieldStyle(.roundedBorder)
-            TextField("登录账号", text: $coordinator.username)
-                .textInputAutocapitalization(.never)
-                .textFieldStyle(.roundedBorder)
-            SecureField("登录密码", text: $coordinator.password)
-                .textFieldStyle(.roundedBorder)
-            Button {
-                Task { await coordinator.runBackup() }
-            } label: {
-                HStack {
-                    if coordinator.running { ProgressView().tint(.white) }
-                    Text(coordinator.running ? "正在备份" : "立即备份")
-                        .fontWeight(.bold)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 8)
+    private var selectedVideos: Int { selection.filter { $0.itemProvider.hasItemConformingToTypeIdentifier(UTType.movie.identifier) }.count }
+    private var local: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("选择要备份的媒体").font(.title.bold())
+            Text("在系统照片网格中预览并勾选，确认后只备份所选项目。")
+            Button("取消本次选择") { selection = []; confirmPicker = false }
+            List(selection.indices, id: \.self) { index in
+                Text(selection[index].itemProvider.suggestedName ?? "媒体 \(index + 1)")
             }
+            Text("已选择 \(selection.count - selectedVideos) 张照片、\(selectedVideos) 个视频；原始大小将在准备文件时确认。")
+            Text("可访问 PhotoKit 原始资源时备份完整资产，否则保存选择器交付的导入副本。")
+                .font(.caption).foregroundStyle(.secondary)
+            Button("备份所选 \(selection.count) 项") {
+                let results = selection; selection = []; confirmPicker = false; tab = 2
+                Task { await coordinator.runBackup(selection: results) }
+            }
+            .disabled(selection.isEmpty || coordinator.running || coordinator.serverURL.isEmpty || coordinator.username.isEmpty)
             .buttonStyle(.borderedProminent)
-            .tint(Color(red: 0.12, green: 0.32, blue: 0.26))
-            .disabled(coordinator.running)
+        }.padding()
+    }
+    private var transfers: some View {
+        List {
             Text(coordinator.status)
-                .font(.footnote)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .cardStyle()
-    }
-
-    private var albumCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("设备相册").font(.headline)
-                    Text("关闭的相册不会备份；选中的相册会单向同步到服务器")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button("刷新") { Task { await coordinator.refreshAlbums() } }
-            }
-            if coordinator.albums.isEmpty {
-                Text("授权照片访问后显示可选相册")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-            ForEach(coordinator.albums.prefix(24)) { album in
-                Toggle(isOn: Binding(
-                    get: { coordinator.selectedAlbumIds.contains(album.id) },
-                    set: { coordinator.setAlbum(album.id, enabled: $0) }
-                )) {
-                    VStack(alignment: .leading) {
-                        Text(album.name)
-                        Text("\(album.count) 项")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .tint(Color(red: 0.12, green: 0.42, blue: 0.34))
-            }
-        }
-        .cardStyle()
-    }
-
-    private var libraryCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(coordinator.showingTrash ? "服务器回收站" : "服务器时间线")
-                    .font(.headline)
-                Text("登录新设备后可直接下载原始文件恢复")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            HStack {
-                Button(coordinator.libraryLoading ? "加载中" : "刷新") {
-                    Task { await coordinator.refreshLibrary() }
-                }
-                .disabled(coordinator.libraryLoading)
-                Button(coordinator.showingTrash ? "返回时间线" : "查看回收站") {
-                    Task { await coordinator.refreshLibrary(trashed: !coordinator.showingTrash) }
-                }
-                if !coordinator.showingTrash && !coordinator.remoteAssets.isEmpty {
-                    Button("全部恢复") { Task { await coordinator.restoreAllToPhone() } }
+            Button("继续待处理任务") { Task { await coordinator.runBackup() } }.disabled(coordinator.running)
+            Section("下载") {
+                ForEach(coordinator.downloads) { download in
+                    Text("\(download.name) · \(download.phase) · \(download.bytes / 1048576) / \(download.total / 1048576) MiB")
                 }
             }
-            .buttonStyle(.bordered)
-            Text(coordinator.duplicateGroupCount == 0
-                ? "未发现重复组"
-                : "发现 \(coordinator.duplicateGroupCount) 组重复内容，可将多余副本移入回收站")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            TextField("要添加的标签", text: $coordinator.newTagName)
-                .textFieldStyle(.roundedBorder)
-
-            if coordinator.remoteAssets.isEmpty {
-                Text("尚未加载或没有媒体")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-            ForEach(coordinator.remoteAssets.prefix(24)) { asset in
-                Divider()
-                VStack(alignment: .leading, spacing: 7) {
-                    if let data = coordinator.remoteThumbnails[asset.id], let image = UIImage(data: data) {
-                        Image(uiImage: image)
-                            .resizable()
-                            .scaledToFill()
-                            .frame(width: 88, height: 72)
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                    }
-                    Text(asset.primary?.filename ?? "媒体资源")
-                        .fontWeight(.semibold)
-                        .lineLimit(1)
-                    Text(Date(timeIntervalSince1970: Double(asset.sourceCreatedAtMs) / 1000).formatted())
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    if !asset.tagNames.isEmpty {
-                        Text(asset.tagNames.joined(separator: " · "))
-                            .font(.caption)
-                            .foregroundStyle(Color(red: 0.12, green: 0.42, blue: 0.34))
+            Text("上传")
+            ForEach(coordinator.batches) { batch in
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("所选批次：\(batch.complete) / \(batch.count) 项完成")
+                    if batch.cancelled { Text("已取消本次上传") }
+                    ForEach(batch.items.indices, id: \.self) { index in
+                        Text(itemName(batch.items[index]) + " · " + itemStatus(batch.items[index])).font(.caption)
                     }
                     HStack {
-                        if !asset.isTrashed {
-                            Button("恢复到手机") { Task { await coordinator.restoreToPhone(asset) } }
-                            Button(asset.favorite ? "取消收藏" : "收藏") {
-                                Task { await coordinator.toggleFavorite(asset) }
-                            }
-                            Button(asset.archived ? "取消归档" : "归档") {
-                                Task { await coordinator.toggleArchived(asset) }
-                            }
-                            if !coordinator.newTagName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                Button("加标签") { Task { await coordinator.addTag(to: asset) } }
-                            }
-                            Button("回收站", role: .destructive) { Task { await coordinator.toggleTrash(asset) } }
-                        } else {
-                            Button("撤销删除") { Task { await coordinator.toggleTrash(asset) } }
-                        }
-                    }
-                    .buttonStyle(.borderless)
-                    .font(.footnote)
+                        Button("取消本次上传") { Task { await coordinator.changeBatch(batch.id, retry: false) } }
+                        Button("重试批次") { Task { await coordinator.changeBatch(batch.id, retry: true) } }
+                    }.buttonStyle(.borderless)
                 }
             }
         }
-        .cardStyle()
+        .task { while !Task.isCancelled { coordinator.refreshTransfers(); try? await Task.sleep(for: .seconds(2)) } }
     }
-}
-
-private extension View {
-    func cardStyle() -> some View {
-        padding(20)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 22))
+    private func itemName(_ item: [String: Any]) -> String {
+        guard let source = item["source"] as? String,
+            let descriptor = try? JSONSerialization.jsonObject(with: Data(source.utf8)) as? [String: Any] else { return "媒体" }
+        return descriptor["name"] as? String ?? "媒体"
+    }
+    private func itemStatus(_ item: [String: Any]) -> String {
+        if item["state"] as? String == "blocked" {
+            let expected = (item["originals_expected"] as? Int) ?? 0
+            let originalDone = expected > 0 && ((item["originals_complete"] as? Int) ?? 0) >= expected
+            return (originalDone ? "原件已备份，关联资源待重试：" : "") + ((item["error"] as? String) ?? "需要重新授权访问")
+        }
+        let count = (item["resources"] as? Int) ?? 0
+        let complete = (item["complete"] as? Int) ?? 0
+        if count > 0 && complete == count && item["state"] as? String == "queued" { return "所选资源已备份" }
+        if let error = item["upload_error"] as? String {
+            return ((item["originals_expected"] as? Int) ?? 0) > 0 && ((item["originals_complete"] as? Int) ?? 0) >= ((item["originals_expected"] as? Int) ?? 0) ? "原始资源已备份，关联资源待重试：\(error)" : "等待重试：\(error)"
+        }
+        return item["state"] as? String == "queued" ? "排队中 / 上传中" : "正在准备原始文件"
+    }
+    private var settings: some View {
+        Form {
+            TextField("HTTPS 服务器根地址", text: $coordinator.serverURL).textInputAutocapitalization(.never).keyboardType(.URL)
+            TextField("备份账户", text: $coordinator.username).textInputAutocapitalization(.never)
+            SecureField("密码", text: $coordinator.password)
+            Toggle("自动备份", isOn: $coordinator.autoBackup)
+            Toggle("仅 Wi-Fi 上传", isOn: $coordinator.wifiOnly)
+            Toggle("后台仅充电时运行", isOn: $coordinator.chargingOnly)
+            Button("授权并读取自动备份相册") { Task { await coordinator.refreshAlbums() } }
+            ForEach(coordinator.albums) { album in
+                Toggle("\(album.name)（\(album.count) 项）", isOn: Binding(
+                    get: { coordinator.selectedAlbumIds.contains(album.id) },
+                    set: { coordinator.setAlbum(album.id, enabled: $0) }))
+            }
+            Button("保存设置") { coordinator.saveSettings() }
+            Stepper("图片磁盘缓存：\(cacheLimit) MiB", value: $cacheLimit, in: 64...1024, step: 64)
+            Button("清空浏览图片缓存") { Task { do { try await RemoteImageCache.shared.clear(); coordinator.status = "浏览缓存已清空" } catch { coordinator.status = error.localizedDescription } } }
+            Text("关闭相册不会删除云端内容。手动选择不受自动相册限制。图片内存缓存上限：24 MiB。")
+                .font(.caption)
+            Text(coordinator.status)
+        }
     }
 }
