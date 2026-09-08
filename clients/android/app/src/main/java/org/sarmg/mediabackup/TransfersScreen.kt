@@ -38,23 +38,27 @@ internal fun TransfersScreen(context: Context, config: SecureConfig, profile: St
     }
     LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
-            Text("传输", style = MaterialTheme.typography.headlineMedium)
             Text(notice)
             Text("等待 Wi-Fi、充电或系统调度时会保留批次。取消批次不会删除云端副本。", style = MaterialTheme.typography.bodySmall)
             TextButton(onClick = { BackupScheduler.enqueueNow(context, config) }) { Text("继续待处理任务") }
         }
         item { Text("下载", style = MaterialTheme.typography.titleMedium) }
+        if (downloads.none { it.profile == profile }) item { Text("暂无下载任务", style = MaterialTheme.typography.bodySmall) }
         downloads.filter { it.profile == profile }.forEach { download ->
             item(key = download.id) { Text("${download.name} · ${download.phase} · ${download.bytes / 1048576} / ${download.total / 1048576} MiB") }
         }
-        item { Text("上传", style = MaterialTheme.typography.titleMedium) }
+        item { Text("上传 · ${batches.size} 个批次", style = MaterialTheme.typography.titleMedium) }
+        if (batches.isEmpty()) item { Text("在本地图库勾选照片，开始第一次备份。", style = MaterialTheme.typography.bodySmall) }
         for ((batch, items) in batches) {
             item(key = batch.getString("id")) {
-                Card {
+                var expanded by remember(batch.getString("id")) { mutableStateOf(false) }
+                Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp)) {
                         Text("所选批次：${batch.getInt("complete")} / ${batch.getInt("items")} 项完成")
                         if (batch.getBoolean("cancelled")) Text("已取消本次上传")
-                        for (item in items) {
+                        LinearProgressIndicator(progress = { batch.getInt("complete").toFloat() / batch.getInt("items").coerceAtLeast(1) }, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp))
+                        TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "收起详情" else "查看详情") }
+                        if (expanded) for (item in items) {
                             val state = when {
                                 item.getString("state") == "blocked" -> (if (item.getInt("originals_expected") > 0 && item.getInt("originals_complete") >= item.getInt("originals_expected")) "原件已备份，关联资源待重试：" else "") + item.optString("error", "需要重新授权")
                                 item.getString("state") == "queued" && item.getInt("resources") > 0 && item.getInt("resources") == item.getInt("complete") -> "所选副本已备份"

@@ -38,6 +38,15 @@ class SecureConfig(context: Context) {
         serverUrl = server; username = user; password = secret
     }
 
+    fun saveAuthenticatedConnection(expected: Connection, server: String, user: String, secret: String,
+        api: BackupApi, token: String) = synchronized(connectionLock) {
+        check(connection() == expected) { "账户已改变，请重新登录" }
+        check(token.isNotBlank()) { "服务器没有返回有效登录凭据" }
+        preferences.edit().putString("server_url", server).putString("username", user)
+            .putString("password", secret).putString("account_id_v04", api.accountId)
+            .putString("device_id_v04", api.deviceId).putString(MobileContractV02.TOKEN_KEY, token).apply()
+    }
+
     var serverUrl: String
         get() = preferences.getString("server_url", "") ?: ""
         set(value) {

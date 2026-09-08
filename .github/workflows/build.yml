@@ -113,11 +113,24 @@ jobs:
       - run: brew install xcodegen
       - run: ./scripts/build-ios-rust.sh
       - run: cd clients/ios && xcodegen generate
-      - name: Run iOS state-epoch isolation tests
+      - name: Run iOS account, navigation and state isolation tests
         run: |
           simulator_udid="$(xcrun simctl list devices available -j | python3 -c 'import json, sys; devices = json.load(sys.stdin)["devices"]; print(next(device["udid"] for runtime, entries in devices.items() if runtime.startswith("com.apple.CoreSimulator.SimRuntime.iOS-27-") for device in entries if device["name"].startswith("iPhone") and device.get("isAvailable")))')"
           test -n "$simulator_udid"
-          xcodebuild -project clients/ios/MediaBackup.xcodeproj -scheme MediaBackup -sdk iphonesimulator -destination "id=$simulator_udid" CODE_SIGNING_ALLOWED=NO -derivedDataPath clients/ios/DerivedData test
+          bash scripts/seed-ios-ui.sh "$simulator_udid"
+          xcodebuild -project clients/ios/MediaBackup.xcodeproj -scheme MediaBackup -sdk iphonesimulator -destination "id=$simulator_udid" CODE_SIGNING_ALLOWED=NO -derivedDataPath clients/ios/DerivedData -resultBundlePath clients/ios/TestResults.xcresult -parallel-testing-enabled NO test
+      - name: Export iOS UI screenshots
+        if: always()
+        run: |
+          if test -d clients/ios/TestResults.xcresult; then
+            xcrun xcresulttool export attachments --path clients/ios/TestResults.xcresult --output-path dist/ios-ui
+          fi
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: media-backup-ios-ui
+          path: dist/ios-ui/
+          if-no-files-found: warn
       - name: Build without signing
         run: xcodebuild -project clients/ios/MediaBackup.xcodeproj -scheme MediaBackup -sdk iphoneos -configuration Release CODE_SIGNING_ALLOWED=NO -derivedDataPath clients/ios/DerivedData build
       - name: Package unsigned IPA

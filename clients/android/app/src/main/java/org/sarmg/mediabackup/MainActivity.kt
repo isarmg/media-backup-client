@@ -31,12 +31,18 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AppNavigation(context: Context) {
     val config = remember { SecureConfig(context) }
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var profile by remember { mutableStateOf(config.profile) }
-    Scaffold(bottomBar = {
+    var account by remember { mutableStateOf(false) }
+    var accountRevision by remember { mutableIntStateOf(0) }
+    Scaffold(topBar = {
+        TopAppBar(title = { Text(listOf("本地图库", "云端图库", "传输", "设置")[tab]) },
+            actions = { TextButton(onClick = { account = true }) { Text("登录 / 账户") } })
+    }, bottomBar = {
         NavigationBar {
             listOf("本地", "云端", "传输", "设置").forEachIndexed { index, title ->
                 NavigationBarItem(selected = tab == index, onClick = { tab = index },
@@ -45,24 +51,32 @@ private fun AppNavigation(context: Context) {
         }
     }) { padding ->
         Box(Modifier.fillMaxSize().padding(padding).padding(12.dp)) {
-            key(profile) {
+            key(profile, accountRevision) {
                 when (tab) {
-                    0 -> LocalGalleryScreen(context, config, profile, onSubmitted = { tab = 2 })
-                    1 -> CloudGalleryScreen(context, config, profile)
+                    0 -> LocalGalleryScreen(context, config, profile, onSubmitted = { tab = 2 }, onLogin = { account = true })
+                    1 -> if (config.serverUrl.isBlank() || config.username.isBlank()) {
+                        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center,
+                            horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
+                            Text("登录后查看云端照片", style = MaterialTheme.typography.titleLarge)
+                            Text("浏览、收藏和下载已备份的媒体", Modifier.padding(16.dp))
+                            Button(onClick = { account = true }) { Text("登录账户") }
+                        }
+                    } else CloudGalleryScreen(context, config, profile)
                     2 -> TransfersScreen(context, config, profile)
-                    else -> SettingsScreen(context, config, onSaved = { profile = config.profile })
+                    else -> SettingsScreen(context, config, onLogin = { account = true })
                 }
             }
         }
     }
+    if (account) AccountDialog(context, config, onDismiss = { account = false }, onLoggedIn = {
+        profile = config.profile; accountRevision++; account = false
+    })
+
 }
 
 @Composable
-private fun SettingsScreen(context: Context, config: SecureConfig, onSaved: () -> Unit) {
+private fun SettingsScreen(context: Context, config: SecureConfig, onLogin: () -> Unit) {
     val scope = rememberCoroutineScope()
-    var server by remember { mutableStateOf(config.serverUrl) }
-    var username by remember { mutableStateOf(config.username) }
-    var password by remember { mutableStateOf(config.password) }
     var auto by remember { mutableStateOf(config.autoBackup) }
     var wifi by remember { mutableStateOf(config.wifiOnly) }
     var charging by remember { mutableStateOf(config.chargingOnly) }
@@ -76,10 +90,16 @@ private fun SettingsScreen(context: Context, config: SecureConfig, onSaved: () -
     fun loadAlbums() { scope.launch { albums = withContext(Dispatchers.IO) { DeviceAlbums.list(context) } } }
     val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { loadAlbums() }
     LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { Text("设置", style = MaterialTheme.typography.headlineMedium) }
-        item { OutlinedTextField(server, { server = it }, label = { Text("HTTPS 服务器根地址") }, modifier = Modifier.fillMaxWidth()) }
-        item { OutlinedTextField(username, { username = it }, label = { Text("备份账户") }, modifier = Modifier.fillMaxWidth()) }
-        item { OutlinedTextField(password, { password = it }, label = { Text("密码") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth()) }
+        item {
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(config.username.ifBlank { "尚未登录" }, style = MaterialTheme.typography.titleLarge)
+                    if (config.serverUrl.isNotEmpty()) Text(config.serverUrl, style = MaterialTheme.typography.bodySmall)
+                    Button(onClick = onLogin) { Text("登录 / 切换账户") }
+                }
+            }
+        }
+        item { Text("备份偏好", style = MaterialTheme.typography.titleMedium) }
         item { SettingToggle("自动备份", auto) { auto = it } }
         item { SettingToggle("仅 Wi-Fi", wifi) { wifi = it } }
         item { SettingToggle("仅充电时上传", charging) { charging = it } }
@@ -101,22 +121,19 @@ private fun SettingsScreen(context: Context, config: SecureConfig, onSaved: () -
         item {
             Button(onClick = {
                 try {
-                    BackupApi(server.trim().trimEnd('/'), "")
-                    require(username.isNotBlank() && password.isNotBlank()) { "请输入备份账户和密码" }
                     require(!auto || photos || videos) { "自动备份至少选择一种媒体类型" }
-                    if (profileKey(server, username) != config.profile) {
-                        androidx.work.WorkManager.getInstance(context).cancelAllWorkByTag(BackupScheduler.TAG)
-                        config.saveSnapshot(BackupSnapshot())
-                    }
-                    config.saveCredentials(server, username, password)
                     config.autoBackup = auto; config.wifiOnly = wifi; config.chargingOnly = charging
                     config.backupPhotos = photos; config.backupVideos = videos; config.cameraOnly = camera
                     config.selectedAlbumIds = selected
                     BackupScheduler.syncAutomatic(context, config)
-                    notice = "设置已保存"; onSaved()
+                    notice = "备份偏好已保存"
                 } catch (e: Exception) { notice = e.message ?: "设置无效" }
-            }) { Text("保存设置") }
-            Text(notice)
+            }) { Text("保存备份偏好") }
+            if (notice.isNotEmpty()) Text(notice, style = MaterialTheme.typography.bodySmall)
+        }
+        item { HorizontalDivider() }
+        item {
+            Text("浏览缓存", style = MaterialTheme.typography.titleMedium)
             Text("图片缓存：内存 24 MiB，磁盘 $cacheLimit MiB", style = MaterialTheme.typography.bodySmall)
             Slider(cacheLimit.toFloat(), { cacheLimit = (it.toInt() / 64) * 64 }, valueRange = 64f..1024f, steps = 14,
                 onValueChangeFinished = { RemoteImageCache.setLimit(context, cacheLimit) })

@@ -6,8 +6,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.10"
-    MARKETING_VERSION: "0.4.1"
-    CURRENT_PROJECT_VERSION: "5"
+    MARKETING_VERSION: "0.4.2"
+    CURRENT_PROJECT_VERSION: "6"
 targets:
   MediaBackup:
     type: application
@@ -49,6 +49,17 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.sarmg.mediabackup.tests
         CODE_SIGN_STYLE: Automatic
+  MediaBackupUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - MediaBackupUITests
+    dependencies:
+      - target: MediaBackup
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.sarmg.mediabackup.uitests
+        CODE_SIGN_STYLE: Automatic
 schemes:
   MediaBackup:
     build:
@@ -58,3 +69,4 @@ schemes:
       config: Debug
       targets:
         - MediaBackupTests
+        - MediaBackupUITests

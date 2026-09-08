@@ -76,6 +76,32 @@ final class BackupCoordinator: ObservableObject {
             if autoBackup { scheduleBackgroundRun() }
         } catch { status = error.localizedDescription }
     }
+    func login(server: String, username user: String, password secret: String) async throws {
+        let credentials = try AccountLogin(server: server, username: user, password: secret)
+        let generation = credentialGeneration
+        let response = try await credentials.authenticate()
+        try Task.checkCancellation()
+        guard generation == credentialGeneration else { throw CancellationError() }
+        let address = credentials.server.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let newProfile = profileKey(server: address, username: credentials.username)
+        let targetStore = try TransferStore(profile: newProfile)
+        try targetStore.client.transfer(["op": "bind", "server": address,
+            "account_id": response.accountId.uuidString, "device_id": response.deviceId.uuidString])
+        // No stored account or active transfer is changed until authentication and binding succeed.
+        credentialsChanged()
+        KeychainStore.delete(MobileContractV02.tokenKey)
+        try KeychainStore.save(credentials.username, for: "username")
+        try KeychainStore.save(credentials.password, for: "password")
+        try KeychainStore.save(response.accountId.uuidString, for: "account_id_v04")
+        try KeychainStore.save(response.deviceId.uuidString, for: "device_id_v04")
+        try KeychainStore.save(response.bearerToken, for: MobileContractV02.tokenKey)
+        MobileContractV02.preferences.set(address, for: "server_url")
+        serverURL = address; username = credentials.username; password = credentials.password
+        stores[newProfile] = targetStore
+        library = RemoteLibrary(serverURL: credentials.server, token: response.bearerToken)
+        status = "已登录：\(username)"
+        if autoBackup { scheduleBackgroundRun() }
+    }
     func refreshAlbums() async {
         let authorization = await PhotoScanner().requestAccess()
         guard authorization == .authorized || authorization == .limited else {

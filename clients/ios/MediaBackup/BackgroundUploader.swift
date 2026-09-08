@@ -157,8 +157,12 @@ final class BackgroundUploader: NSObject, URLSessionTaskDelegate {
             "platform": "ios",
         ])
         let (data, response) = try await SecureSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw UploadFailure.server(String(decoding: data, as: UTF8.self))
+        guard let http = response as? HTTPURLResponse else { throw UploadFailure.invalidResponse }
+        if http.statusCode == 401 || http.statusCode == 403 {
+            throw CoordinatorFailure.message("账户或密码不正确，或账户没有访问权限")
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw CoordinatorFailure.message("登录失败（HTTP \(http.statusCode)），请稍后重试")
         }
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase

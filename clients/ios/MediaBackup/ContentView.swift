@@ -7,16 +7,33 @@ struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var tab = 0
     @State private var picker = false
+    @State private var account = false
     @AppStorage("gallery_cache_mib") private var cacheLimit = 256
     @State private var confirmPicker = false
     @State private var selection: [PHPickerResult] = []
     var body: some View {
         TabView(selection: $tab) {
-            LocalGalleryScreen(onSubmitted: { tab = 2 }, onSystemPicker: { selection = []; picker = true }).id(coordinator.profile).tabItem { Label("本地", systemImage: "photo.on.rectangle") }.tag(0)
-            CloudGalleryScreen().id(coordinator.profile).padding().tabItem { Label("云端", systemImage: "cloud") }.tag(1)
-            transfers.tabItem { Label("传输", systemImage: "arrow.up.arrow.down") }.tag(2)
-            settings.tabItem { Label("设置", systemImage: "gear") }.tag(3)
+            NavigationStack {
+                LocalGalleryScreen(onSubmitted: { tab = 2 }, onSystemPicker: { selection = []; picker = true }, onLogin: { account = true })
+                    .id(coordinator.profile).navigationTitle("本地图库")
+                    .toolbar { accountToolbar }
+            }.tabItem { Label("本地", systemImage: "photo.on.rectangle") }.tag(0)
+            NavigationStack {
+                Group {
+                    if coordinator.serverURL.isEmpty || coordinator.username.isEmpty {
+                        VStack {
+                            GalleryEmptyState(title: "登录后查看云端照片", message: "随时浏览、收藏和下载已备份的媒体。", icon: "cloud")
+                            Button("登录账户") { account = true }.buttonStyle(.borderedProminent)
+                        }
+                    } else { CloudGalleryScreen().id(coordinator.profile) }
+                }.navigationTitle("云端图库").toolbar { accountToolbar }
+            }.tabItem { Label("云端", systemImage: "cloud") }.tag(1)
+            NavigationStack { transfers.navigationTitle("传输").toolbar { accountToolbar } }
+                .tabItem { Label("传输", systemImage: "arrow.up.arrow.down") }.tag(2)
+            NavigationStack { settings.navigationTitle("设置").toolbar { accountToolbar } }
+                .tabItem { Label("设置", systemImage: "gear") }.tag(3)
         }
+        .sheet(isPresented: $account) { AccountScreen() }
         .sheet(isPresented: $picker, onDismiss: { confirmPicker = !selection.isEmpty }) {
             SelectedMediaPicker { results in selection = results; picker = false }
         }
@@ -24,6 +41,12 @@ struct ContentView: View {
         .onChange(of: coordinator.profile) { _, _ in selection = [] }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { coordinator.refreshTransfers() }
+        }
+    }
+    @ToolbarContentBuilder private var accountToolbar: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            Button { account = true } label: { Label(coordinator.username.isEmpty ? "登录" : "账户", systemImage: "person.crop.circle").labelStyle(.titleAndIcon) }
+                .accessibilityIdentifier("account.open")
         }
     }
     private var selectedVideos: Int { selection.filter { $0.itemProvider.hasItemConformingToTypeIdentifier(UTType.movie.identifier) }.count }
@@ -48,29 +71,50 @@ struct ContentView: View {
     }
     private var transfers: some View {
         List {
-            Text(coordinator.status)
-            Button("继续待处理任务") { Task { await coordinator.runBackup() } }.disabled(coordinator.running)
-            Section("下载") {
-                ForEach(coordinator.downloads) { download in
-                    Text("\(download.name) · \(download.phase) · \(download.bytes / 1048576) / \(download.total / 1048576) MiB")
+            Section {
+                Label(coordinator.status, systemImage: coordinator.running ? "arrow.triangle.2.circlepath" : "tray")
+                    .font(.subheadline)
+                Button("继续待处理任务") { Task { await coordinator.runBackup() } }
+                    .disabled(coordinator.running || coordinator.username.isEmpty)
+            }
+            Section("上传 · \(coordinator.batches.count) 个批次") {
+                if coordinator.batches.isEmpty { Text("还没有上传任务，在本地图库选择照片开始备份。").foregroundStyle(.secondary) }
+                ForEach(coordinator.batches) { batch in
+                    DisclosureGroup {
+                        ForEach(batch.items.indices, id: \.self) { index in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(itemName(batch.items[index])).lineLimit(2)
+                                Text(itemStatus(batch.items[index])).font(.caption).foregroundStyle(.secondary)
+                            }.padding(.vertical, 4)
+                        }
+                        HStack {
+                            Button("重试批次") { Task { await coordinator.changeBatch(batch.id, retry: true) } }
+                            Spacer()
+                            Button("取消上传", role: .destructive) { Task { await coordinator.changeBatch(batch.id, retry: false) } }
+                                .disabled(batch.cancelled)
+                        }.buttonStyle(.borderless)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(batch.cancelled ? "已取消的批次" : "照片备份").font(.headline)
+                            ProgressView(value: Double(batch.complete), total: Double(max(1, batch.count)))
+                            Text("\(batch.complete) / \(batch.count) 项完成").font(.caption).foregroundStyle(.secondary)
+                        }.padding(.vertical, 6)
+                    }
                 }
             }
-            Text("上传")
-            ForEach(coordinator.batches) { batch in
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("所选批次：\(batch.complete) / \(batch.count) 项完成")
-                    if batch.cancelled { Text("已取消本次上传") }
-                    ForEach(batch.items.indices, id: \.self) { index in
-                        Text(itemName(batch.items[index]) + " · " + itemStatus(batch.items[index])).font(.caption)
+            Section("下载") {
+                if coordinator.downloads.isEmpty { Text("暂无下载任务").foregroundStyle(.secondary) }
+                ForEach(coordinator.downloads) { download in
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(download.name).lineLimit(2)
+                        Text("\(download.phase) · \(download.bytes / 1048576) / \(download.total / 1048576) MiB")
+                            .font(.caption).foregroundStyle(.secondary)
+                        if download.total > 0 { ProgressView(value: Double(download.bytes), total: Double(download.total)) }
                     }
-                    HStack {
-                        Button("取消本次上传") { Task { await coordinator.changeBatch(batch.id, retry: false) } }
-                        Button("重试批次") { Task { await coordinator.changeBatch(batch.id, retry: true) } }
-                    }.buttonStyle(.borderless)
                 }
             }
         }
-        .task { while !Task.isCancelled { coordinator.refreshTransfers(); try? await Task.sleep(for: .seconds(2)) } }
+        .task { while !Task.isCancelled { coordinator.refreshTransfers(); do { try await Task.sleep(for: .seconds(2)) } catch { break } } }
     }
     private func itemName(_ item: [String: Any]) -> String {
         guard let source = item["source"] as? String,
@@ -93,24 +137,36 @@ struct ContentView: View {
     }
     private var settings: some View {
         Form {
-            TextField("HTTPS 服务器根地址", text: $coordinator.serverURL).textInputAutocapitalization(.never).keyboardType(.URL)
-            TextField("备份账户", text: $coordinator.username).textInputAutocapitalization(.never)
-            SecureField("密码", text: $coordinator.password)
-            Toggle("自动备份", isOn: $coordinator.autoBackup)
-            Toggle("仅 Wi-Fi 上传", isOn: $coordinator.wifiOnly)
-            Toggle("后台仅充电时运行", isOn: $coordinator.chargingOnly)
-            Button("授权并读取自动备份相册") { Task { await coordinator.refreshAlbums() } }
-            ForEach(coordinator.albums) { album in
-                Toggle("\(album.name)（\(album.count) 项）", isOn: Binding(
-                    get: { coordinator.selectedAlbumIds.contains(album.id) },
-                    set: { coordinator.setAlbum(album.id, enabled: $0) }))
+            Section("账户") {
+                Label(coordinator.username.isEmpty ? "尚未登录" : coordinator.username, systemImage: "person.crop.circle.fill")
+                    .font(.headline)
+                if !coordinator.serverURL.isEmpty { Text(coordinator.serverURL).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
+                Button("登录 / 切换账户") { account = true }.accessibilityIdentifier("settings.login")
             }
-            Button("保存设置") { coordinator.saveSettings() }
-            Stepper("图片磁盘缓存：\(cacheLimit) MiB", value: $cacheLimit, in: 64...1024, step: 64)
-            Button("清空浏览图片缓存") { Task { do { try await RemoteImageCache.shared.clear(); coordinator.status = "浏览缓存已清空" } catch { coordinator.status = error.localizedDescription } } }
-            Text("关闭相册不会删除云端内容。手动选择不受自动相册限制。图片内存缓存上限：24 MiB。")
-                .font(.caption)
-            Text(coordinator.status)
+            Section("备份偏好") {
+                Toggle("自动备份", isOn: $coordinator.autoBackup)
+                Toggle("仅 Wi-Fi 上传", isOn: $coordinator.wifiOnly)
+                Toggle("后台仅充电时运行", isOn: $coordinator.chargingOnly)
+                Button("保存备份偏好") { coordinator.saveSettings() }
+            }
+            Section {
+                DisclosureGroup("自动备份相册") {
+                    Button("选择可访问的相册") { Task { await coordinator.refreshAlbums() } }
+                    ForEach(coordinator.albums) { album in
+                        Toggle("\(album.name)（\(album.count) 项）", isOn: Binding(
+                            get: { coordinator.selectedAlbumIds.contains(album.id) },
+                            set: { coordinator.setAlbum(album.id, enabled: $0) }))
+                    }
+                }
+            } footer: { Text("手动选择不受自动相册限制。关闭相册不会删除云端照片。") }
+            Section("浏览缓存") {
+                Stepper("磁盘缓存：\(cacheLimit) MiB", value: $cacheLimit, in: 64...1024, step: 64)
+                Button("清空浏览缓存") { Task {
+                    do { try await RemoteImageCache.shared.clear(); coordinator.status = "浏览缓存已清空" }
+                    catch { coordinator.status = error.localizedDescription }
+                } }
+            }
+            Section { Text(coordinator.status).font(.footnote).foregroundStyle(.secondary) }
         }
     }
 }

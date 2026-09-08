@@ -8,6 +8,11 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import android.graphics.Bitmap
 import android.os.Build
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -31,6 +36,7 @@ import kotlinx.coroutines.withContext
 import java.text.DateFormat
 import java.util.Date
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun CloudGalleryScreen(context: Context, config: SecureConfig, profile: String) {
     val scope = rememberCoroutineScope()
@@ -44,6 +50,7 @@ internal fun CloudGalleryScreen(context: Context, config: SecureConfig, profile:
     var favorites by remember(profile) { mutableStateOf(false) }
     var albums by remember(profile) { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
     var albumId by remember(profile) { mutableStateOf<String?>(null) }
+    var showFilters by remember { mutableStateOf(false) }
     var albumMenu by remember(profile) { mutableStateOf(false) }
     var filters by remember(profile) { mutableStateOf(CloudFilters()) }
     var devices by remember(profile) { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
@@ -128,11 +135,37 @@ internal fun CloudGalleryScreen(context: Context, config: SecureConfig, profile:
         }
     }
     Column(Modifier.fillMaxSize()) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilledTonalButton(onClick = { showFilters = true }) { Text("筛选") }
             TextButton(onClick = { load(true) }) { Text("刷新") }
             TextButton(onClick = { trash = !trash; load(true) }) { Text(if (trash) "返回云端" else "回收站") }
             TextButton(onClick = { favorites = !favorites; load(true) }) { Text(if (favorites) "全部" else "收藏") }
         }
+        if (notice.isNotEmpty()) Text(notice, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+        LazyVerticalGrid(columns = GridCells.Adaptive(105.dp), modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (assets.isEmpty() && !loading) item(span = { GridItemSpan(maxLineSpan) }) {
+                Column(Modifier.fillMaxWidth().padding(vertical = 36.dp)) {
+                    Text("没有找到照片", style = MaterialTheme.typography.titleMedium)
+                    Text("调整筛选条件，或从本地图库备份照片。", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            itemsIndexed(assets, key = { _, asset -> asset.id }) { index, asset ->
+                Column(Modifier.clickable { selected = index }) {
+                    RemoteImage(context, api, profile, asset, false, Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(10.dp)))
+                    if (asset.mediaKind == "video") Text("视频", style = MaterialTheme.typography.labelSmall)
+                    Text(DateFormat.getDateInstance().format(Date(asset.createdAtMs)), style = MaterialTheme.typography.labelSmall)
+                }
+            }
+            if (cursor != null) item(span = { GridItemSpan(maxLineSpan) }) {
+                LaunchedEffect(cursor) { load(false) }
+                TextButton(onClick = { load(false) }, enabled = !loading) { Text("加载更多") }
+            }
+        }
+    }
+    if (showFilters) ModalBottomSheet(onDismissRequest = { showFilters = false }) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("筛选云端照片", style = MaterialTheme.typography.titleLarge)
         Box {
             TextButton(onClick = { albumMenu = true }) { Text(albums.firstOrNull { it.first == albumId }?.second ?: "所有云端相册") }
             DropdownMenu(expanded = albumMenu, onDismissRequest = { albumMenu = false }) {
@@ -151,9 +184,9 @@ internal fun CloudGalleryScreen(context: Context, config: SecureConfig, profile:
                 }
             }
         }
-        Row {
-            OutlinedTextField(fromDate, { fromDate = it }, Modifier.weight(1f), label = { Text("开始 yyyy-MM-dd") }, singleLine = true)
-            OutlinedTextField(toDate, { toDate = it }, Modifier.weight(1f), label = { Text("结束（不含）") }, singleLine = true)
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(fromDate, { fromDate = it }, Modifier.fillMaxWidth(), label = { Text("开始 yyyy-MM-dd") }, singleLine = true)
+            OutlinedTextField(toDate, { toDate = it }, Modifier.fillMaxWidth(), label = { Text("结束（不含）") }, singleLine = true)
             TextButton(onClick = {
                 try {
                     fun parse(value: String): Long? = value.takeIf { it.isNotBlank() }?.let { java.time.LocalDate.parse(it).atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli() }
@@ -163,20 +196,7 @@ internal fun CloudGalleryScreen(context: Context, config: SecureConfig, profile:
                 } catch (_: Exception) { notice = "请输入有效日期，结束日期应晚于开始日期" }
             }) { Text("应用") }
         }
-        Text(notice, style = MaterialTheme.typography.bodySmall)
-        if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
-        LazyVerticalGrid(columns = GridCells.Adaptive(112.dp), modifier = Modifier.weight(1f)) {
-            itemsIndexed(assets, key = { _, asset -> asset.id }) { index, asset ->
-                Column(Modifier.padding(3.dp).clickable { selected = index }) {
-                    RemoteImage(context, api, profile, asset, false, Modifier.fillMaxWidth().aspectRatio(1f))
-                    Text(if (asset.mediaKind == "video") "视频" else "照片", style = MaterialTheme.typography.labelSmall)
-                    Text(DateFormat.getDateInstance().format(Date(asset.createdAtMs)), style = MaterialTheme.typography.labelSmall)
-                }
-            }
-            if (cursor != null) item(span = { GridItemSpan(maxLineSpan) }) {
-                LaunchedEffect(cursor) { load(false) }
-                TextButton(onClick = { load(false) }, enabled = !loading) { Text("加载更多") }
-            }
+            Button(onClick = { showFilters = false }, modifier = Modifier.fillMaxWidth()) { Text("完成") }
         }
     }
     selected?.let { index ->

@@ -5,20 +5,87 @@ struct CloudGalleryScreen: View {
     @EnvironmentObject private var coordinator: BackupCoordinator
     @State private var selected: RemoteAsset?
     @State private var dateFilter = false
+    @State private var showFilters = false
     @State private var startDate = Date().addingTimeInterval(-30 * 86400)
     @State private var endDate = Date().addingTimeInterval(86400)
     var body: some View {
-        VStack {
-            HStack {
-                Button("刷新") { Task { await coordinator.refreshLibrary() } }
-                Button(coordinator.showingTrash ? "返回云端" : "回收站") {
-                    Task { await coordinator.refreshLibrary(trashed: !coordinator.showingTrash) }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack {
+                    Button { showFilters = true } label: { Label("筛选", systemImage: "line.3.horizontal.decrease") }
+                        .buttonStyle(.bordered)
+                    Button {
+                        coordinator.favoritesOnly.toggle(); Task { await coordinator.refreshLibrary() }
+                    } label: { Label(coordinator.favoritesOnly ? "已收藏" : "收藏", systemImage: coordinator.favoritesOnly ? "heart.fill" : "heart") }
+                        .buttonStyle(.bordered)
+                    Spacer()
+                    Menu {
+                        Button("刷新图库") { Task { await coordinator.refreshLibrary() } }
+                        Button(coordinator.showingTrash ? "返回全部照片" : "打开回收站") {
+                            Task { await coordinator.refreshLibrary(trashed: !coordinator.showingTrash) }
+                        }
+                    } label: { Image(systemName: "ellipsis.circle").frame(width: 44, height: 44) }
+                        .accessibilityLabel("图库选项")
                 }
-                Button(coordinator.favoritesOnly ? "全部" : "收藏") {
-                    coordinator.favoritesOnly.toggle()
-                    Task { await coordinator.refreshLibrary() }
+                if coordinator.showingTrash { Label("回收站", systemImage: "trash").font(.headline) }
+                Text(coordinator.status).font(.caption).foregroundStyle(.secondary)
+                if coordinator.libraryLoading { ProgressView().frame(maxWidth: .infinity) }
+                if coordinator.remoteAssets.isEmpty && !coordinator.libraryLoading {
+                    GalleryEmptyState(title: "没有找到照片", message: "下拉刷新或调整筛选条件，也可以先从本地图库备份照片。", icon: "cloud")
                 }
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 105), spacing: 4)], spacing: 12) {
+                    ForEach(coordinator.remoteAssets) { asset in
+                        Button { selected = asset } label: {
+                            VStack(alignment: .leading, spacing: 5) {
+                                Color.clear.aspectRatio(1, contentMode: .fit).overlay {
+                                    GeometryReader { proxy in
+                                        CloudImage(asset: asset, library: coordinator.library, profile: coordinator.profile, preview: false)
+                                            .frame(width: proxy.size.width, height: proxy.size.height).clipped()
+                                    }
+                                }.clipShape(RoundedRectangle(cornerRadius: 10))
+                                .overlay(alignment: .bottomLeading) {
+                                    if asset.mediaKind == "video" {
+                                        Image(systemName: "video.fill").font(.caption).foregroundStyle(.white)
+                                            .padding(6).background(.black.opacity(0.45), in: Capsule()).padding(6)
+                                    }
+                                }
+                                Text(Date(timeIntervalSince1970: Double(asset.sourceCreatedAtMs) / 1000), style: .date)
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            }
+                        }.buttonStyle(.plain)
+                    }
+                }
+                if coordinator.nextCursor != nil {
+                    Button("加载更多") { Task { await coordinator.loadLibraryPage() } }
+                        .disabled(coordinator.libraryLoading).frame(maxWidth: .infinity)
+                        .task(id: coordinator.nextCursor) { await coordinator.loadLibraryPage() }
+                }
+            }.padding(.horizontal, 16).padding(.bottom, 16)
+        }
+        .refreshable { await coordinator.refreshLibrary() }
+        .sheet(isPresented: $showFilters) {
+            NavigationStack {
+                Form { filterControls }
+                    .navigationTitle("筛选云端照片").navigationBarTitleDisplayMode(.inline)
+                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { showFilters = false } } }
+            }.presentationDetents([.medium, .large])
+        }
+        .task(id: coordinator.profile) {
+            if coordinator.remoteAssets.isEmpty { await coordinator.refreshLibrary() }
+            while !Task.isCancelled {
+                if selected == nil { await coordinator.synchronizeGallery() }
+                do { try await Task.sleep(for: .seconds(30)) } catch { break }
             }
+        }
+        .onChange(of: coordinator.cloudFilters) { _, _ in Task { await coordinator.refreshLibrary() } }
+        .onChange(of: dateFilter) { _, enabled in if !enabled { coordinator.cloudFilters.from = nil; coordinator.cloudFilters.to = nil } }
+        .sheet(item: $selected) { asset in
+            PhotoViewerScreen(initial: asset).environmentObject(coordinator)
+        }
+        .onChange(of: coordinator.profile) { _, _ in selected = nil }
+    }
+    private var filterControls: some View {
+        Group {
             Picker("云端相册", selection: $coordinator.selectedRemoteAlbum) {
                 Text("所有云端相册").tag(Optional<UUID>.none)
                 ForEach(coordinator.remoteAlbums) { album in Text(album.name).tag(Optional(album.id)) }
@@ -43,43 +110,9 @@ struct CloudGalleryScreen: View {
                     coordinator.cloudFilters.to = Int64(Calendar.current.startOfDay(for: endDate).timeIntervalSince1970 * 1000)
                 }
             }
-            Text(coordinator.status).font(.caption)
-            if coordinator.libraryLoading { ProgressView() }
-            ScrollView {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 110))]) {
-                    ForEach(coordinator.remoteAssets) { asset in
-                        Button { selected = asset } label: {
-                            VStack {
-                                CloudImage(asset: asset, library: coordinator.library, profile: coordinator.profile, preview: false)
-                                    .frame(height: 110).clipped()
-                                Text(asset.mediaKind == "video" ? "视频" : "照片").font(.caption)
-                                Text(Date(timeIntervalSince1970: Double(asset.sourceCreatedAtMs) / 1000), style: .date).font(.caption2)
-                            }
-                        }
-                    }
-                }
-                if coordinator.nextCursor != nil {
-                    Button("加载更多") { Task { await coordinator.loadLibraryPage() } }
-                        .disabled(coordinator.libraryLoading)
-                        .task(id: coordinator.nextCursor) { await coordinator.loadLibraryPage() }
-                }
-            }
-            .refreshable { await coordinator.refreshLibrary() }
         }
-        .task(id: coordinator.profile) {
-            if coordinator.remoteAssets.isEmpty { await coordinator.refreshLibrary() }
-            while !Task.isCancelled {
-                if selected == nil { await coordinator.synchronizeGallery() }
-                do { try await Task.sleep(for: .seconds(30)) } catch { break }
-            }
-        }
-        .onChange(of: coordinator.cloudFilters) { _, _ in Task { await coordinator.refreshLibrary() } }
-        .onChange(of: dateFilter) { _, enabled in if !enabled { coordinator.cloudFilters.from = nil; coordinator.cloudFilters.to = nil } }
-        .sheet(item: $selected) { asset in
-            PhotoViewerScreen(initial: asset).environmentObject(coordinator)
-        }
-        .onChange(of: coordinator.profile) { _, _ in selected = nil }
     }
+
 }
 
 struct CloudImage: View {

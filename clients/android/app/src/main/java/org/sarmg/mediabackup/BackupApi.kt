@@ -53,7 +53,8 @@ class BackupApi(
         val response = client.newCall(request).execute()
         response.use {
             val text = it.body.string()
-            if (!it.isSuccessful) error("设备注册失败: ${it.code} $text")
+            if (it.code == 401 || it.code == 403) error("账户或密码不正确，或账户没有访问权限")
+            if (!it.isSuccessful) error("登录失败（HTTP ${it.code}），请稍后重试")
             val result = JSONObject(text)
             accountId = result.getString("account_id"); deviceId = result.getString("device_id")
             bearerToken = result.getString("bearer_token")
