@@ -62,7 +62,7 @@ final class RustClientABITests: XCTestCase {
         let provider = NSItemProvider()
         provider.suggestedName = "opaque-provider-identifier"
         provider.previewImageHandler = { completion, _, _ in
-            completion?(nil, NSError(domain: NSItemProviderErrorDomain, code: -1))
+            completion?(nil, NSError(domain: NSItemProvider.errorDomain, code: -1))
         }
         provider.registerFileRepresentation(forTypeIdentifier: "public.png", fileOptions: [], visibility: .all) { completion in
             completion(file, false, nil)
