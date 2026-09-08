@@ -121,9 +121,12 @@ fn snapshot_generation(path: &Path) -> anyhow::Result<ValidationSnapshot> {
 }
 
 fn snapshot_generation_once(path: &Path) -> anyhow::Result<ValidationSnapshot> {
+    let parent = path
+        .parent()
+        .context("client SQLite path must have a parent")?;
     let directory = tempfile::Builder::new()
         .prefix("media-client-schema-check-")
-        .tempdir()
+        .tempdir_in(parent)
         .context("create private client current-schema validation directory")?;
     let database = directory.path().join("database.sqlite3");
     let sources = [
@@ -543,6 +546,23 @@ fn sync_parent(path: &Path) -> anyhow::Result<()> {
 #[cfg(test)]
 pub(crate) mod tests_support {
     use super::*;
+
+    #[test]
+    fn validation_snapshot_stays_in_database_sandbox() -> anyhow::Result<()> {
+        let root = tempfile::tempdir()?;
+        let root_path = root.path().canonicalize()?;
+        let path = root_path.join("client.sqlite");
+        initialize_current_database(&path)?;
+        let snapshot = snapshot_generation(&path)?;
+        assert_eq!(
+            snapshot._directory.path().parent(),
+            Some(root_path.as_path())
+        );
+        let snapshot_path = snapshot._directory.path().to_path_buf();
+        drop(snapshot);
+        assert!(!snapshot_path.exists());
+        Ok(())
+    }
 
     pub(crate) const APPLICATION: &str = super::APPLICATION;
 

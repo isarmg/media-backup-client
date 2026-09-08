@@ -56,24 +56,26 @@ class BackupWorker(context: Context, parameters: WorkerParameters) : CoroutineWo
         }
         var token = config.bearerToken
         val api = BackupApi(config.serverUrl, token)
+        var phase = "设备注册"
         return try {
             if (token.isBlank()) {
                 publish(config, snapshot.copy(message = "正在注册此设备"), "连接", 0, 0)
                 token = api.bootstrap(config.username, config.password, Build.MODEL)
                 config.bearerToken = token
             }
+            phase = "准备本地备份目录"
+            val paths = NativeStorage.prepare(applicationContext)
             val nativeConfig = MobileContractV02.putIdentity(JSONObject())
                 .put("part_size", 16 * 1024 * 1024)
+            phase = "打开本地备份数据库"
             val handle = NativeBridgeV2.open(
-                applicationContext.getDatabasePath(MobileContractV02.DATABASE_FILENAME).absolutePath,
+                paths.database.absolutePath,
                 nativeConfig.toString(),
             )
             if (handle == 0L) error("无法打开 Rust Client")
             try {
-                val stagingRoot = File(
-                    applicationContext.filesDir,
-                    MobileContractV02.STAGING_DIRECTORY,
-                ).also { it.mkdirs() }
+                val stagingRoot = paths.staging
+                phase = "扫描媒体库"
                 publish(config, snapshot.copy(message = "正在扫描媒体库"), "扫描", 0, 0)
                 val selectedAlbumIds = if (!config.cameraOnly && !config.albumSelectionConfigured) {
                     DeviceAlbums.list(applicationContext).mapTo(mutableSetOf()) { it.id }
@@ -103,6 +105,7 @@ class BackupWorker(context: Context, parameters: WorkerParameters) : CoroutineWo
                         config.saveSnapshot(snapshot.copy(state = "idle", message = "备份已停止", currentItem = ""))
                         return Result.failure(workDataOf(OUTPUT_MESSAGE to "备份已停止"))
                     }
+                    phase = "准备媒体分块"
                     val envelope = MobileContractV02.requireEnvelope(
                         NativeBridgeV2.next(handle, stagingRoot.absolutePath),
                     )
@@ -115,6 +118,7 @@ class BackupWorker(context: Context, parameters: WorkerParameters) : CoroutineWo
                     val filename = job.optJSONObject("request")?.optString("filename", "媒体文件") ?: "媒体文件"
                     snapshot = snapshot.copy(message = "正在备份 $filename", currentItem = filename)
                     publish(config, snapshot, "上传", snapshot.completed, maxOf(scan.discovered, 1))
+                    phase = "上传媒体分块"
                     val uploadedBytes = uploadJob(api, handle, job)
                     snapshot = snapshot.copy(
                         completed = snapshot.completed + 1,
@@ -124,6 +128,7 @@ class BackupWorker(context: Context, parameters: WorkerParameters) : CoroutineWo
                     )
                     publish(config, snapshot, "上传", snapshot.completed, maxOf(scan.discovered, snapshot.completed))
                 }
+                phase = "同步相册"
                 for ((albumId, album) in scan.albums) {
                     api.syncAlbum(
                         albumId,
@@ -161,7 +166,7 @@ class BackupWorker(context: Context, parameters: WorkerParameters) : CoroutineWo
         } catch (error: Exception) {
             snapshot = snapshot.copy(
                 state = "error",
-                message = error.message?.take(180) ?: "备份失败，等待系统重试",
+                message = "$phase：${error.message ?: "备份失败，等待系统重试"}".take(180),
                 failed = snapshot.failed + 1,
                 currentItem = "",
             )

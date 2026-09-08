@@ -6,11 +6,12 @@ plugins {
 // Distribution versions must not silently change the persisted mobile state identity.
 // Rust crates and MobileContractV02 retain the explicit 0.3.0 / v0.3-r1 contract.
 val workspaceVersion = file("../../../VERSION").readText().trim()
+val emulatorTests = providers.gradleProperty("mediaBackupEmulatorTests").orNull == "true"
 
 val semanticVersion = workspaceVersion.substringBefore('-').split('.').map(String::toInt)
 require(semanticVersion.size == 3) { "Workspace version must use major.minor.patch" }
-require(workspaceVersion == "0.3.1") {
-    "This release builds Media Backup Client 0.3.1"
+require(workspaceVersion == "0.3.2") {
+    "This release builds Media Backup Client 0.3.2"
 }
 
 val releasePkcs12Path = providers
@@ -30,6 +31,7 @@ gradle.taskGraph.whenReady {
         task.project == project && task.name.contains("Release", ignoreCase = true)
     }
     if (buildsReleaseVariant) {
+        require(!emulatorTests) { "Emulator ABI is restricted to debug tests" }
         val signingPath = requireNotNull(releasePkcs12Path) {
             "Release tasks require MEDIA_BACKUP_ANDROID_SIGNING_PKCS12_PATH"
         }
@@ -52,9 +54,10 @@ android {
         targetSdk = 36
         versionCode = semanticVersion[0] * 1_000_000 + semanticVersion[1] * 1_000 + semanticVersion[2]
         versionName = workspaceVersion
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {
-            abiFilters += "arm64-v8a"
+            abiFilters += if (emulatorTests) "x86_64" else "arm64-v8a"
         }
     }
 
@@ -108,4 +111,6 @@ dependencies {
     implementation("androidx.security:security-crypto:1.1.0")
     implementation("com.squareup.okhttp3:okhttp:5.1.0")
     testImplementation("junit:junit:4.13.2")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
 }

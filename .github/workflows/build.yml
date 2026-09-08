@@ -46,7 +46,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
         with:
           toolchain: 1.98.0
-          targets: aarch64-linux-android
+          targets: aarch64-linux-android,x86_64-linux-android
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: android
@@ -72,6 +72,23 @@ jobs:
         with:
           name: media-backup-android-debug
           path: clients/android/app/build/outputs/apk/debug/*.apk
+
+      - name: Prepare Android 16 sandbox tests
+        run: |
+          sdkmanager "emulator" "system-images;android-36;google_apis;x86_64"
+          sudo chown "$(id -un)" /dev/kvm
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
+          cargo ndk -t x86_64 -o clients/android/app/src/main/jniLibs build -p media-backup-mobile --release --locked
+      - name: Test actual JNI backup on Android 16
+        run: bash scripts/test-android-emulator.sh
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: media-backup-android16-test-results
+          path: |
+            clients/android/app/build/reports/androidTests/
+            clients/android/app/build/outputs/androidTest-results/
+            ${{ runner.temp }}/media-backup-emulator.log
 
   ios:
     name: iOS unsigned build
