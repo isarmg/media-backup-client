@@ -123,7 +123,7 @@ jobs:
           echo "MEDIA_BACKUP_TEST_SIMULATOR=$simulator_udid" >> "$GITHUB_ENV"
           xcodebuild -project clients/ios/MediaBackup.xcodeproj -scheme MediaBackup -sdk iphonesimulator -destination "id=$simulator_udid" CODE_SIGNING_ALLOWED=NO -derivedDataPath clients/ios/DerivedData -only-testing:MediaBackupTests -parallel-testing-enabled NO test
       - name: Run iOS login and gallery UI tests
-        timeout-minutes: 8
+        timeout-minutes: 12
         run: |
           bash scripts/seed-ios-ui.sh "$MEDIA_BACKUP_TEST_SIMULATOR"
           xcodebuild -project clients/ios/MediaBackup.xcodeproj -scheme MediaBackup -sdk iphonesimulator -destination "id=$MEDIA_BACKUP_TEST_SIMULATOR" CODE_SIGNING_ALLOWED=NO -derivedDataPath clients/ios/DerivedData -only-testing:MediaBackupUITests -resultBundlePath clients/ios/TestResults.xcresult -parallel-testing-enabled NO test

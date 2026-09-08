@@ -2,19 +2,29 @@ import SwiftUI
 import PhotosUI
 import UniformTypeIdentifiers
 
+private enum MediaSheet: Identifiable {
+    case picker
+    case confirmation(UUID, [PHPickerResult])
+    var id: String {
+        switch self {
+        case .picker: return "picker"
+        case .confirmation(let id, _): return id.uuidString
+        }
+    }
+}
+
 struct ContentView: View {
     @EnvironmentObject private var coordinator: BackupCoordinator
     @Environment(\.scenePhase) private var scenePhase
     @State private var tab = 0
-    @State private var picker = false
+    @State private var mediaSheet: MediaSheet?
+    @State private var pendingMediaSheet: MediaSheet?
     @State private var account = false
     @AppStorage("gallery_cache_mib") private var cacheLimit = 256
-    @State private var confirmPicker = false
-    @State private var selection: [PHPickerResult] = []
     var body: some View {
         TabView(selection: $tab) {
             NavigationStack {
-                LocalGalleryScreen(onSubmitted: { tab = 2 }, onSystemPicker: { selection = []; picker = true }, onLogin: { account = true })
+                LocalGalleryScreen(onSubmitted: { tab = 2 }, onSystemPicker: { pendingMediaSheet = nil; mediaSheet = .picker }, onLogin: { account = true })
                     .id(coordinator.profile).navigationTitle("本地图库")
                     .toolbar { accountToolbar }
             }.tabItem { Label("本地", systemImage: "photo.on.rectangle") }.tag(0)
@@ -36,11 +46,21 @@ struct ContentView: View {
         .sheet(isPresented: $account, onDismiss: {
             if tab == 1, coordinator.library != nil { Task { await coordinator.refreshLibrary() } }
         }) { AccountScreen() }
-        .sheet(isPresented: $picker, onDismiss: { confirmPicker = !selection.isEmpty }) {
-            SelectedMediaPicker { results in selection = results; picker = false }
+        .sheet(item: $mediaSheet, onDismiss: {
+            // Present the next sheet only after UIKit has dismissed the picker.
+            // The confirmation owns an immutable copy of the selected results.
+            if let next = pendingMediaSheet { pendingMediaSheet = nil; mediaSheet = next }
+        }) { sheet in
+            switch sheet {
+            case .picker:
+                SelectedMediaPicker { results in
+                    pendingMediaSheet = results.isEmpty ? nil : .confirmation(UUID(), results)
+                    mediaSheet = nil
+                }
+            case .confirmation(_, let results): selectionConfirmation(results)
+            }
         }
-        .sheet(isPresented: $confirmPicker, onDismiss: { selection = [] }) { local }
-        .onChange(of: coordinator.profile) { _, _ in selection = [] }
+        .onChange(of: coordinator.profile) { _, _ in pendingMediaSheet = nil; mediaSheet = nil }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { coordinator.refreshTransfers() }
         }
@@ -51,12 +71,12 @@ struct ContentView: View {
                 .accessibilityIdentifier("account.open")
         }
     }
-    private var selectedVideos: Int { selection.filter { $0.itemProvider.hasItemConformingToTypeIdentifier(UTType.movie.identifier) }.count }
-    private var local: some View {
-        VStack(alignment: .leading, spacing: 16) {
+    private func selectionConfirmation(_ selection: [PHPickerResult]) -> some View {
+        let selectedVideos = selection.filter { $0.itemProvider.hasItemConformingToTypeIdentifier(UTType.movie.identifier) }.count
+        return VStack(alignment: .leading, spacing: 16) {
             Text("选择要备份的媒体").font(.title.bold())
             Text("在系统照片网格中预览并勾选，确认后只备份所选项目。")
-            Button("取消本次选择") { selection = []; confirmPicker = false }
+            Button("取消本次选择") { mediaSheet = nil }
             ScrollView {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), spacing: 8)], spacing: 8) {
                     ForEach(selection.indices, id: \.self) { index in
@@ -68,7 +88,7 @@ struct ContentView: View {
             Text("可访问 PhotoKit 原始资源时备份完整资产，否则保存选择器交付的导入副本。")
                 .font(.caption).foregroundStyle(.secondary)
             Button("备份所选 \(selection.count) 项") {
-                let results = selection; selection = []; confirmPicker = false; tab = 2
+                let results = selection; mediaSheet = nil; tab = 2
                 Task { await coordinator.runBackup(selection: results) }
             }
             .disabled(selection.isEmpty || coordinator.running || coordinator.serverURL.isEmpty || coordinator.username.isEmpty)

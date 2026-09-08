@@ -43,23 +43,26 @@ final class NavigationTests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments += ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
         app.launch()
-        XCTAssertTrue(app.buttons["gallery.add"].waitForExistence(timeout: 20))
-        app.buttons["gallery.add"].tap()
-        app.buttons["gallery.system-picker"].tap()
-        let photo = app.images.matching(identifier: "PXGGridLayout-Info").firstMatch
-        XCTAssertTrue(photo.waitForExistence(timeout: 20), app.debugDescription)
-        photo.tap()
-        let add = app.buttons["Add"]
-        XCTAssertTrue(add.waitForExistence(timeout: 15), app.debugDescription)
-        let ready = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true AND hittable == true"), object: add)
-        XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 10), .completed)
-        add.tap()
-        XCTAssertTrue(app.staticTexts["选择要备份的媒体"].waitForExistence(timeout: 15), app.debugDescription)
-        let preview = app.descendants(matching: .any).matching(identifier: "selection.preview.0").firstMatch
-        XCTAssertTrue(preview.waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertGreaterThan(preview.frame.width, 80)
-        screenshot("selected-media-confirmation")
-        app.buttons["取消本次选择"].tap()
+        for attempt in 1...2 {
+            XCTAssertTrue(app.buttons["gallery.add"].waitForExistence(timeout: 20))
+            app.buttons["gallery.add"].tap()
+            app.buttons["gallery.system-picker"].tap()
+            let photo = app.images.matching(identifier: "PXGGridLayout-Info").firstMatch
+            XCTAssertTrue(photo.waitForExistence(timeout: 20), app.debugDescription)
+            photo.tap()
+            let add = app.buttons["Add"]
+            XCTAssertTrue(add.waitForExistence(timeout: 15), app.debugDescription)
+            let ready = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true AND hittable == true"), object: add)
+            XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 10), .completed)
+            add.tap()
+            XCTAssertTrue(app.staticTexts["选择要备份的媒体"].waitForExistence(timeout: 15), app.debugDescription)
+            let preview = app.descendants(matching: .any).matching(identifier: "selection.preview.0").firstMatch
+            XCTAssertTrue(preview.waitForExistence(timeout: 10), app.debugDescription)
+            XCTAssertGreaterThan(preview.frame.width, 80)
+            XCTAssertTrue(app.buttons["备份所选 1 项"].exists, app.debugDescription)
+            screenshot("selected-media-confirmation-\(attempt)")
+            app.buttons["取消本次选择"].tap()
+        }
     }
 
     @MainActor private func screenshot(_ name: String) {
