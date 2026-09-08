@@ -50,6 +50,39 @@ final class RustClientABITests: XCTestCase {
         XCTAssertThrowsError(try RustClient(databasePath: alias.appendingPathComponent(MobileContractV02.databaseFilename).path))
     }
 
+    func testSelectedImageLoadsFromProviderFileWithoutPreviewOrPhotoKit() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("provider-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("original.png")
+        let original = UIGraphicsImageRenderer(size: CGSize(width: 900, height: 600)).image { context in
+            UIColor.red.setFill(); context.fill(CGRect(x: 0, y: 0, width: 900, height: 600))
+        }
+        try XCTUnwrap(original.pngData()).write(to: file)
+        let provider = NSItemProvider()
+        provider.suggestedName = "opaque-provider-identifier"
+        provider.previewImageHandler = { completion, _, _ in
+            completion(nil, NSError(domain: NSItemProviderErrorDomain, code: -1))
+        }
+        provider.registerFileRepresentation(forTypeIdentifier: "public.png", fileOptions: [], visibility: .all) { completion in
+            completion(file, false, nil)
+            return nil
+        }
+        let loaded = await PickerPreview.loadProvider(provider)
+        let thumbnail = try XCTUnwrap(loaded, "Selected file must decode when optional system preview is absent")
+        XCTAssertLessThanOrEqual(max(thumbnail.size.width, thumbnail.size.height), 320)
+        XCTAssertNotNil(thumbnail.cgImage)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file.path), "Preview must not delete original media")
+    }
+
+    func testLargePreviewUIImageIsDownsampled() throws {
+        let original = UIGraphicsImageRenderer(size: CGSize(width: 1200, height: 800)).image { context in
+            UIColor.blue.setFill(); context.fill(CGRect(x: 0, y: 0, width: 1200, height: 800))
+        }
+        let image = try XCTUnwrap(PickerPreview.image(original))
+        XCTAssertLessThanOrEqual(max(image.size.width, image.size.height), 320)
+    }
+
     func testNativeFailureDescriptionIsVisible() {
         XCTAssertEqual(ClientFailure.message("备份记录暂时不可用").localizedDescription, "备份记录暂时不可用")
     }

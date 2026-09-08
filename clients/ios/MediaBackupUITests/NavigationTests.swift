@@ -59,6 +59,8 @@ final class NavigationTests: XCTestCase {
             let preview = app.descendants(matching: .any).matching(identifier: "selection.preview.0").firstMatch
             XCTAssertTrue(preview.waitForExistence(timeout: 10), app.debugDescription)
             XCTAssertGreaterThan(preview.frame.width, 80)
+            let decoded = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "已加载缩略图"), object: preview)
+            XCTAssertEqual(XCTWaiter.wait(for: [decoded], timeout: 20), .completed, app.debugDescription)
             XCTAssertTrue(app.buttons["备份所选 1 项"].exists, app.debugDescription)
             screenshot("selected-media-confirmation-\(attempt)")
             app.buttons["取消本次选择"].tap()
