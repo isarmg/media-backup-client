@@ -47,7 +47,7 @@ struct ContentView: View {
     }
     @ToolbarContentBuilder private var accountToolbar: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
-            Button { account = true } label: { Label(coordinator.username.isEmpty ? "登录" : "账户", systemImage: "person.crop.circle").labelStyle(.titleAndIcon) }
+            Button(coordinator.username.isEmpty ? "登录" : "账户") { account = true }
                 .accessibilityIdentifier("account.open")
         }
     }
