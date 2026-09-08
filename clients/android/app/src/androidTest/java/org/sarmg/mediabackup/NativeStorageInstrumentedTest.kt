@@ -118,6 +118,9 @@ class NativeStorageInstrumentedTest {
     @Test fun refusesChildDirectoryLinks() {
         val target = File(root, "target")
         Os.mkdir(target.path, 0x1ed)
+        // Android's restrictive process umask can turn mkdir(0755) into 0700.
+        // Establish the fixture explicitly before proving rejection does not chmod it.
+        Os.chmod(target.path, 0x1ed)
         val link = File(root, "databases")
         Os.symlink(target.path, link.path)
         try {
