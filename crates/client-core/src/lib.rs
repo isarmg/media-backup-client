@@ -44,6 +44,18 @@ pub enum ClientError {
     Staging(#[from] sarmg_client_fs_safety::Error),
 }
 
+impl ClientError {
+    /// Reviewed static diagnostics only; internal paths, SQL and content are not exposed.
+    pub fn public_open_message(&self) -> &'static str {
+        if let Self::CurrentState(error) = self {
+            if let Some(stage) = error.downcast_ref::<database::OpenStage>() {
+                return stage.public_message();
+            }
+        }
+        "MBDB-OPEN：无法读取本地备份记录"
+    }
+}
+
 pub const MOBILE_PRODUCT: &str = "media-backup";
 pub const MOBILE_APPLICATION_VERSION: &str = "0.4.0";
 pub const MOBILE_REVISION: u32 = 1;

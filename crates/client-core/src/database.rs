@@ -26,34 +26,65 @@ const PRODUCT_METADATA_SQL: &str = "CREATE TABLE product_metadata (
     schema_sha256 TEXT NOT NULL
 )";
 
+#[derive(Debug, thiserror::Error)]
+pub(super) enum OpenStage {
+    #[error("MBDB-PATH：无法访问备份目录")]
+    Path,
+    #[error("MBDB-CREATE：无法创建备份数据库")]
+    Create,
+    #[error("MBDB-VALIDATE：本地备份数据库校验失败")]
+    Validate,
+    #[error("MBDB-CONNECT：无法连接本地备份数据库")]
+    Connect,
+    #[error("MBDB-CONFIGURE：无法启用数据库写入")]
+    Configure,
+}
+impl OpenStage {
+    pub(super) fn public_message(&self) -> &'static str {
+        match self {
+            Self::Path => "MBDB-PATH：无法访问备份目录",
+            Self::Create => "MBDB-CREATE：无法创建备份数据库",
+            Self::Validate => "MBDB-VALIDATE：本地备份数据库校验失败",
+            Self::Connect => "MBDB-CONNECT：无法连接本地备份数据库",
+            Self::Configure => "MBDB-CONFIGURE：无法启用数据库写入",
+        }
+    }
+}
+
 pub(super) fn open_current(path: &Path) -> anyhow::Result<Connection> {
     require_client_database_path(path)?;
-    require_real_parent(path)?;
+    require_real_parent(path).context(OpenStage::Path)?;
     match fs::symlink_metadata(path) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            require_absent_sidecars(path)?;
-            initialize_current_database(path)?;
+            require_absent_sidecars(path).context(OpenStage::Validate)?;
+            initialize_current_database(path).context(OpenStage::Create)?;
         }
-        Err(error) => return Err(error.into()),
-        Ok(_) => validate_current_database(path)?,
+        Err(error) => return Err(anyhow::Error::from(error).context(OpenStage::Path)),
+        Ok(_) => validate_current_database(path).context(OpenStage::Validate)?,
     }
 
-    require_secure_database_file(path)?;
+    require_secure_database_file(path).context(OpenStage::Validate)?;
     let connection = Connection::open_with_flags(
         path,
         OpenFlags::SQLITE_OPEN_READ_WRITE
             | OpenFlags::SQLITE_OPEN_NO_MUTEX
             | OpenFlags::SQLITE_OPEN_NOFOLLOW,
     )
-    .context("open current client SQLite database")?;
+    .context(OpenStage::Connect)?;
     connection.busy_timeout(BUSY_TIMEOUT)?;
     // Validate the production generation again before the first intentional
     // write. The private snapshot above guarantees an invalid existing
     // generation is rejected without touching its main file or sidecars.
-    validate_current_connection(&connection)?;
-    connection.pragma_update(None, "foreign_keys", "ON")?;
-    connection.pragma_update(None, "journal_mode", "WAL")?;
-    connection.pragma_update(None, "synchronous", "FULL")?;
+    validate_current_connection(&connection).context(OpenStage::Validate)?;
+    connection
+        .pragma_update(None, "foreign_keys", "ON")
+        .context(OpenStage::Configure)?;
+    connection
+        .pragma_update(None, "journal_mode", "WAL")
+        .context(OpenStage::Configure)?;
+    connection
+        .pragma_update(None, "synchronous", "FULL")
+        .context(OpenStage::Configure)?;
     Ok(connection)
 }
 
@@ -502,22 +533,19 @@ fn require_real_parent(path: &Path) -> anyhow::Result<()> {
     let parent = path
         .parent()
         .context("client SQLite path must have a parent")?;
-    let mut current = PathBuf::new();
-    for component in parent.components() {
-        match component {
-            Component::Prefix(prefix) => current.push(prefix.as_os_str()),
-            Component::RootDir => current.push(Path::new(std::path::MAIN_SEPARATOR_STR)),
-            Component::CurDir => current.push("."),
-            Component::Normal(value) => current.push(value),
-            Component::ParentDir => anyhow::bail!("client SQLite path contains parent traversal"),
+    #[cfg(unix)]
+    sarmg_client_fs_safety::validate_directory_path(parent)?;
+    #[cfg(not(unix))]
+    {
+        let mut current = PathBuf::new();
+        for component in parent.components() {
+            current.push(component);
+            let metadata = fs::symlink_metadata(&current)?;
+            ensure!(
+                metadata.is_dir() && !metadata.file_type().is_symlink(),
+                "client SQLite path must not traverse symbolic links or special files"
+            );
         }
-        let metadata = fs::symlink_metadata(&current).with_context(|| {
-            format!("client SQLite parent does not exist: {}", current.display())
-        })?;
-        ensure!(
-            metadata.is_dir() && !metadata.file_type().is_symlink(),
-            "client SQLite path must not traverse symbolic links or special files"
-        );
     }
     Ok(())
 }

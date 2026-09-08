@@ -39,7 +39,7 @@ fn open_impl(path: &str, config: &str) -> Result<u64, FfiError> {
     require_path(path, MOBILE_DATABASE_FILENAME)?;
     let client = Client::open(path, config).map_err(|error| match error {
         media_backup_client_core::ClientError::InvalidContract(_) => FfiError::invalid_argument(),
-        _ => FfiError::internal(),
+        _ => FfiError::internal_with_message(error.public_open_message()),
     })?;
     clients().insert(Arc::new(client)).map(Handle::to_u64)
 }
@@ -328,6 +328,27 @@ mod tests {
         "revision": MOBILE_REVISION, "state_epoch": MOBILE_STATE_EPOCH, "part_size": 16 * 1024 * 1024,
     }).to_string()
     }
+    #[test]
+    fn open_failures_expose_only_static_stage_diagnostics() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir
+            .path()
+            .join("private-account-secret")
+            .join(MOBILE_DATABASE_FILENAME);
+        let error = open_impl(missing.to_str().unwrap(), &config()).unwrap_err();
+        assert_eq!(error.status(), ffi::SARMG_FFI_INTERNAL_ERROR);
+        assert_eq!(error.public_message(), "MBDB-PATH：无法访问备份目录");
+        assert!(!error.public_message().contains("private-account-secret"));
+        let foreign = dir.path().join(MOBILE_DATABASE_FILENAME);
+        std::fs::write(&foreign, b"private-database-content").unwrap();
+        let error = open_impl(foreign.to_str().unwrap(), &config()).unwrap_err();
+        assert_eq!(
+            error.public_message(),
+            "MBDB-VALIDATE：本地备份数据库校验失败"
+        );
+        assert_eq!(std::fs::read(foreign).unwrap(), b"private-database-content");
+    }
+
     #[test]
     fn current_abi_opens_reports_errors_and_rejects_repeated_close() {
         let dir = tempfile::tempdir().unwrap();

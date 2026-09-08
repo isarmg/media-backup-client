@@ -5,7 +5,7 @@ source_roots = ["crates/client-core","crates/mobile-ffi","crates/crypto","client
 # Development workspace identity; not an immutable release pin.
 [foundation]
 platform_generation = 1
-version = "0.7.0"
+version = "0.7.1"
 
 [[components]]
 id = "mobile-core"
