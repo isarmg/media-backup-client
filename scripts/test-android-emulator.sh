@@ -4,6 +4,12 @@ set -euo pipefail
 # A fresh, dedicated CI AVD; never targets a connected physical device.
 sdk_root="${ANDROID_HOME:?Android SDK required}"
 avd_name="media-backup-api36-${GITHUB_RUN_ID:?CI run ID required}-${GITHUB_RUN_ATTEMPT:-1}"
+# New SDK tools and emulator releases can choose different default AVD homes.
+# Pin both to this run's isolated directory; do not repurpose the user's HOME.
+avd_storage="$(mktemp -d "${RUNNER_TEMP:?}/media-backup-avd.XXXXXX")"
+export ANDROID_USER_HOME="$avd_storage"
+export ANDROID_AVD_HOME="$avd_storage/avd"
+mkdir -p "$ANDROID_AVD_HOME"
 serial=emulator-5554
 emulator_pid=""
 cleanup() {
@@ -17,6 +23,8 @@ cleanup() {
 trap cleanup EXIT
 test -r /dev/kvm && test -w /dev/kvm
 printf 'no\n' | avdmanager create avd -n "$avd_name" -k 'system-images;android-36;google_apis;x86_64'
+test -f "$ANDROID_AVD_HOME/$avd_name.ini"
+"$sdk_root/emulator/emulator" -list-avds | grep -Fx "$avd_name"
 "$sdk_root/emulator/emulator" -avd "$avd_name" -port 5554 -no-window -no-audio \
   -no-boot-anim -no-snapshot -gpu swiftshader_indirect >"${RUNNER_TEMP:?}/media-backup-emulator.log" 2>&1 &
 emulator_pid=$!
