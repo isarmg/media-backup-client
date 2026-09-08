@@ -133,7 +133,7 @@ jobs:
           if test -n "$runner_data"; then
             find "$runner_data/Documents" -name '*.png' -exec cp {} dist/ios-ui/ \;
           fi
-          xcrun simctl spawn "$MEDIA_BACKUP_TEST_SIMULATOR" log show --last 15m --style compact --predicate 'subsystem == "org.sarmg.mediabackup"' > dist/ios-ui/gallery.log || true
+          xcrun simctl spawn "$MEDIA_BACKUP_TEST_SIMULATOR" log show --last 15m --info --debug --style compact --predicate 'subsystem == "org.sarmg.mediabackup"' > dist/ios-ui/gallery.log || true
           if test -f clients/ios/TestResults.xcresult/Info.plist; then
             xcrun xcresulttool export attachments --path clients/ios/TestResults.xcresult --output-path dist/ios-ui/attachments
           fi
