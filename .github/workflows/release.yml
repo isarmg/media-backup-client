@@ -3,11 +3,11 @@ name: Release
 on:
   push:
     tags:
-      - "v0.4.0"
+      - "v0.4.1"
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing immutable version tag to publish (must be v0.4.0)
+        description: Existing immutable version tag to publish (must be v0.4.1)
         required: true
         type: string
 
@@ -137,7 +137,7 @@ jobs:
   ios:
     name: iOS unsigned IPA
     needs: validate
-    runs-on: macos-15
+    runs-on: xcode-27
     timeout-minutes: 90
     permissions:
       contents: read
@@ -152,7 +152,9 @@ jobs:
           targets: aarch64-apple-ios,aarch64-apple-ios-sim
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          key: release-ios
+          key: release-ios27
+      - name: Verify Xcode 27 and iOS 27 SDKs
+        run: bash scripts/verify-ios-toolchain.sh
       - run: brew install xcodegen
       - run: ./scripts/build-ios-rust.sh
       - run: cd clients/ios && xcodegen generate
@@ -199,4 +201,4 @@ jobs:
             echo "Refusing to reuse or overwrite existing release $RELEASE_TAG" >&2
             exit 1
           fi
-          gh release create "$RELEASE_TAG" dist/* --verify-tag --notes-file docs/releases/0.4.0.md --title "$RELEASE_TAG"
+          gh release create "$RELEASE_TAG" dist/* --verify-tag --notes-file docs/releases/0.4.1.md --title "$RELEASE_TAG"

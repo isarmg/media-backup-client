@@ -37,8 +37,8 @@ finish_job() {
   [[ -n "$job_runner" ]] ||
     fail "$current_file: job '$current_job' has no fixed runs-on value"
   if [[ "$current_job" == "ios" ]]; then
-    [[ "$job_runner" == "macos-15" ]] ||
-      fail "$current_file: iOS job must use macos-15, got '$job_runner'"
+    [[ "$job_runner" == "xcode-27" ]] ||
+      fail "$current_file: iOS job must use xcode-27, got '$job_runner'"
   else
     [[ "$job_runner" == "ubuntu-24.04" ]] ||
       fail "$current_file: job '$current_job' must use ubuntu-24.04, got '$job_runner'"

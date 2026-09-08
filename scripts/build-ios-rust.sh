@@ -7,6 +7,8 @@ rm -rf "$VENDOR/MediaBackupRust.xcframework"
 mkdir -p "$VENDOR/device/headers" "$VENDOR/simulator/headers"
 
 cd "$ROOT"
+# Match the Swift application and test deployment target for both native slices.
+export IPHONEOS_DEPLOYMENT_TARGET=27.0
 cargo build -p media-backup-mobile --release --target aarch64-apple-ios
 cargo build -p media-backup-mobile --release --target aarch64-apple-ios-sim
 cp crates/mobile-ffi/include/media_backup_ffi_v2.h crates/mobile-ffi/include/module.modulemap "$VENDOR/device/headers/"

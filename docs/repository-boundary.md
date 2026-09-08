@@ -4,7 +4,7 @@
 以及唯一产品协议源码位于 https://github.com/isarmg/media-backup-server 。Client 的 Cargo 依赖固定完整协议提交，
 无需相邻 Server 或 Foundation 仓库。
 
-独立 Client 开发版为 0.4.0，移动状态 epoch 为 `media-backup-mobile-v0.4-r1`，移动 C/JNI 调用仍使用明确的 ABI v2。
+独立 Client 发行版为 0.4.1，Rust 契约版本仍为 0.4.0，移动状态 epoch 为 `media-backup-mobile-v0.4-r1`，移动 C/JNI 调用仍使用明确的 ABI v2。
 目录、队列数据库、后台工作标识属于新的当前状态，不兼容或迁移旧数据。Server 支持矩阵不等于移动状态恢复支持。
 
 原产品仓库的 Git 历史、Android application ID、证书身份及 `android-signing` 环境保留在本仓库。

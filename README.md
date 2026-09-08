@@ -1,6 +1,6 @@
 # Media Backup Client
 
-本仓库为 Media Backup Client `0.4.0`，包含 Android/iOS、Rust 移动核心和 FFI。
+本仓库为 Media Backup Client `0.4.1`，包含 Android/iOS、Rust 移动核心和 FFI。
 Server 与管理 Web 位于 [media-backup-server](https://github.com/isarmg/media-backup-server)。
 移动端通过经过证书验证的 HTTPS 上传媒体；Client 不包含 Server 可执行程序或管理 Web。
 
@@ -40,8 +40,10 @@ cargo test --workspace --locked
 使用 Rust `1.98.0`。Foundation Client 与 Server 所属协议均固定完整 Git 提交和精确版本，
 无需相邻仓库，也无需先构建管理 Web。移动 API 为 `/v2`，设备凭据与 Server 管理员凭据是独立授权域。
 Android 普通 CI 构建 Debug APK，正式包必须使用受保护的签名环境；iOS 普通 CI 和正式 Release 均提供未签名 IPA：
-`media-backup-ios-0.4.0-unsigned.ipa`，包含标准 `Payload/MediaBackup.app`。安装前需使用自己的
+`media-backup-ios-0.4.1-unsigned.ipa`，包含标准 `Payload/MediaBackup.app`。安装前需使用自己的
 Apple 签名凭据或侧载工具重新签名；IPA 打包不会自动赋予设备安装授权。
+iOS 最低系统版本为 **27.0**，应用和 Rust 原生库均以 iOS 27 为部署目标。
+构建使用 Xcode 27 / iOS 27 SDK（当前为预览工具链），CI 在 iOS 27 模拟器运行测试。
 Android CI 另使用 API 36 x86_64 模拟器执行真实 JNI 入队、分块、完成和重开测试，
 并检查系统根目录别名、私有目录权限和恶意子链接。正式 APK 仍只包含 arm64-v8a。
 

@@ -62,11 +62,17 @@ if grep -q -E 'assembleDebug|app-debug[.]apk|PHOTO_ANDROID_' .github/workflows/r
 fi
 
 for workflow in .github/workflows/build.yml .github/workflows/release.yml; do
+    grep -q -F 'bash scripts/verify-ios-toolchain.sh' "$workflow" \
+        || fail "$workflow must verify Xcode 27 and iOS 27 SDKs"
     grep -q -F 'python3 scripts/package-ios-ipa.py' "$workflow" \
         || fail "$workflow must package the device app as an IPA"
     grep -q -F 'path: dist/*.ipa' "$workflow" \
         || fail "$workflow must upload the IPA artifact"
 done
+grep -q -F 'iOS: "27.0"' clients/ios/project.yml \
+    || fail "the iOS application and tests must require iOS 27.0"
+grep -q -F 'export IPHONEOS_DEPLOYMENT_TARGET=27.0' scripts/build-ios-rust.sh \
+    || fail "the Rust iOS slices must require iOS 27.0"
 if grep -q -F 'unsigned.tar.gz' .github/workflows/release.yml; then
     fail "iOS releases must publish IPA files rather than app tarballs"
 fi

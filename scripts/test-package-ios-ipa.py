@@ -23,12 +23,14 @@ class PackageTests(unittest.TestCase):
         self.addCleanup(self.root.cleanup)
         self.app = Path(self.root.name) / "build" / "MediaBackup.app"
         self.app.mkdir(parents=True)
-        self.output = Path(self.root.name) / "dist" / "media-backup-ios-0.4.0-unsigned.ipa"
+        self.output = Path(self.root.name) / "dist" / "media-backup-ios-0.4.1-unsigned.ipa"
         self.info = {
             "CFBundleIdentifier": "org.sarmg.mediabackup",
-            "CFBundleShortVersionString": "0.4.0",
+            "CFBundleShortVersionString": "0.4.1",
             "CFBundleSupportedPlatforms": ["iPhoneOS"],
             "CFBundleExecutable": "MediaBackup",
+            "MinimumOSVersion": "27.0",
+            "DTSDKName": "iphoneos27.0",
         }
         self.write_info()
         (self.app / "MediaBackup").write_bytes(b"device executable fixture")
@@ -40,7 +42,7 @@ class PackageTests(unittest.TestCase):
     def test_standard_payload_preserves_binary_resources_and_links(self):
         (self.app / "照片.png").write_bytes(b"image fixture")
         (self.app / "resource-link").symlink_to("照片.png")
-        ipa.package(self.app, self.output, "0.4.0")
+        ipa.package(self.app, self.output, "0.4.1")
         with zipfile.ZipFile(self.output) as archive:
             self.assertIsNone(archive.testzip())
             self.assertTrue(all(name.startswith("Payload/MediaBackup.app") for name in archive.namelist()))
@@ -60,19 +62,36 @@ class PackageTests(unittest.TestCase):
                 self.info[field] = value
                 self.write_info()
                 with self.assertRaises(ValueError):
-                    ipa.package(self.app, self.output, "0.4.0")
+                    ipa.package(self.app, self.output, "0.4.1")
+                self.assertFalse(self.output.exists())
+                self.info[field] = original
+
+    def test_wrong_or_missing_deployment_target_and_sdk_are_rejected(self):
+        for field, value in [("MinimumOSVersion", "17.0"),
+                             ("MinimumOSVersion", "28.0"),
+                             ("MinimumOSVersion", None),
+                             ("DTSDKName", "iphoneos26.0"),
+                             ("DTSDKName", "iphonesimulator27.0"),
+                             ("DTSDKName", None)]:
+            with self.subTest(field=field, value=value):
+                original = self.info.pop(field)
+                if value is not None:
+                    self.info[field] = value
+                self.write_info()
+                with self.assertRaises(ValueError):
+                    ipa.package(self.app, self.output, "0.4.1")
                 self.assertFalse(self.output.exists())
                 self.info[field] = original
 
     def test_missing_binary_and_external_links_are_rejected(self):
         (self.app / "MediaBackup").unlink()
         with self.assertRaises(ValueError):
-            ipa.package(self.app, self.output, "0.4.0")
+            ipa.package(self.app, self.output, "0.4.1")
         (self.app / "MediaBackup").write_bytes(b"fixture")
         (self.app / "MediaBackup").chmod(0o755)
         (self.app / "outside").symlink_to(Path(self.root.name))
         with self.assertRaises(ValueError):
-            ipa.package(self.app, self.output, "0.4.0")
+            ipa.package(self.app, self.output, "0.4.1")
         self.assertFalse(self.output.exists())
 
 

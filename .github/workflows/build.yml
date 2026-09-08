@@ -93,7 +93,7 @@ jobs:
 
   ios:
     name: iOS unsigned IPA
-    runs-on: macos-15
+    runs-on: xcode-27
     timeout-minutes: 90
     permissions:
       contents: read
@@ -107,13 +107,15 @@ jobs:
           targets: aarch64-apple-ios,aarch64-apple-ios-sim
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          key: ios
+          key: ios27
+      - name: Verify Xcode 27 and iOS 27 SDKs
+        run: bash scripts/verify-ios-toolchain.sh
       - run: brew install xcodegen
       - run: ./scripts/build-ios-rust.sh
       - run: cd clients/ios && xcodegen generate
       - name: Run iOS state-epoch isolation tests
         run: |
-          simulator_udid="$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/{print $2; exit}')"
+          simulator_udid="$(xcrun simctl list devices available -j | python3 -c 'import json, sys; devices = json.load(sys.stdin)["devices"]; print(next(device["udid"] for runtime, entries in devices.items() if runtime.startswith("com.apple.CoreSimulator.SimRuntime.iOS-27-") for device in entries if device["name"].startswith("iPhone") and device.get("isAvailable")))')"
           test -n "$simulator_udid"
           xcodebuild -project clients/ios/MediaBackup.xcodeproj -scheme MediaBackup -sdk iphonesimulator -destination "id=$simulator_udid" CODE_SIGNING_ALLOWED=NO -derivedDataPath clients/ios/DerivedData test
       - name: Build without signing
