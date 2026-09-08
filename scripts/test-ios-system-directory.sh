@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+scratch="$(mktemp -d /private/var/tmp/media-backup-path.XXXXXX)"
+trap 'rm -rf -- "$scratch"' EXIT
+mkdir -m 700 "$scratch/container"
+swiftc -o "$scratch/directory-test" clients/ios/MediaBackup/BackupDirectory.swift clients/ios/Tests/BackupDirectoryMain.swift
+cat > "$scratch/test.sb" <<PROFILE
+(version 1)
+(allow default)
+(deny file-read* (literal "$scratch"))
+PROFILE
+sandbox-exec -f "$scratch/test.sb" "$scratch/directory-test" "$scratch/container"

@@ -111,6 +111,8 @@ jobs:
       - name: Verify Xcode 27 and iOS 27 SDKs
         run: bash scripts/verify-ios-toolchain.sh
       - run: brew install xcodegen
+      - name: Verify Swift system directory aliases inside an Apple sandbox
+        run: bash scripts/test-ios-system-directory.sh
       - name: Verify fresh login DB inside a restricted Apple sandbox
         run: bash scripts/test-mobile-ffi-c.sh
       - run: ./scripts/build-ios-rust.sh

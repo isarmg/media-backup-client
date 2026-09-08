@@ -28,6 +28,28 @@ final class RustClientABITests: XCTestCase {
         XCTAssertNil(PickerPreview.image(try XCTUnwrap(URL(string: "https://example.com/image.jpg")) as NSURL))
     }
 
+    func testSystemVarAliasResolvesBeforeNativeDatabaseOpen() throws {
+        let temporary = FileManager.default.temporaryDirectory.appendingPathComponent("alias-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let canonical = try BackupDirectory.canonicalSystemDirectory(temporary)
+        // Force an actual symlink even when the simulator's container has no /var.
+        let alias = temporary.appendingPathComponent("system-alias")
+        let destination = temporary.appendingPathComponent("support")
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: false)
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: destination)
+        let resolved = try BackupDirectory.canonicalSystemDirectory(alias)
+        XCTAssertEqual(resolved.path, canonical.appendingPathComponent("support").path)
+        let db = resolved.appendingPathComponent(MobileContractV02.databaseFilename).path
+        try autoreleasepool {
+            let client = try RustClient(databasePath: db)
+            XCTAssertEqual(try client.transfer(["op": "batches"]) as? [String], [])
+        }
+        _ = try RustClient(databasePath: db)
+        // Product-owned aliases are still rejected instead of silently resolved.
+        XCTAssertThrowsError(try RustClient(databasePath: alias.appendingPathComponent(MobileContractV02.databaseFilename).path))
+    }
+
     func testNativeFailureDescriptionIsVisible() {
         XCTAssertEqual(ClientFailure.message("备份记录暂时不可用").localizedDescription, "备份记录暂时不可用")
     }

@@ -43,8 +43,10 @@ final class TransferStore: @unchecked Sendable {
     let client: RustClient
     let staging: URL
     init(profile: String) throws {
-        let support = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
-            appropriateFor: nil, create: true).resolvingSymlinksInPath().appendingPathComponent(profile, isDirectory: true)
+        let systemSupport = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
+            appropriateFor: nil, create: true)
+        let support = try BackupDirectory.canonicalSystemDirectory(systemSupport)
+            .appendingPathComponent(profile, isDirectory: true)
         try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o700])
         do { client = try RustClient(databasePath: support.appendingPathComponent(MobileContractV02.databaseFilename).path) }
