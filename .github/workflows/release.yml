@@ -48,6 +48,8 @@ jobs:
       - run: cargo test --workspace --locked
 
   android:
+    # 0.4.5 fixes only iOS system path handling; use the existing signed 0.4.4 APK.
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name) != 'v0.4.5' }}
     name: Android APK
     needs: validate
     environment: android-signing
@@ -176,6 +178,7 @@ jobs:
   publish:
     name: Publish GitHub Release
     needs: [android, ios]
+    if: ${{ always() && needs.ios.result == 'success' && (needs.android.result == 'success' || needs.android.result == 'skipped') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
