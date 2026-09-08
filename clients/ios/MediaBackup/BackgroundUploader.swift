@@ -93,7 +93,6 @@ final class BackgroundUploader: NSObject, URLSessionTaskDelegate {
     func syncAlbum(id: String, name: String, assetIds: Set<String>) async throws {
         var request = authorized(path: "/v2/albums", method: "POST")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let deviceName = await MainActor.run { UIDevice.current.name }
         request.httpBody = try JSONSerialization.data(withJSONObject: [
             "source_album_id": id,
             "name": name,
@@ -147,6 +146,7 @@ final class BackgroundUploader: NSObject, URLSessionTaskDelegate {
     }
 
     static func bootstrap(serverURL: URL, username: String, password: String) async throws -> BootstrapResponse {
+        let deviceName = await MainActor.run { UIDevice.current.name }
         var request = URLRequest(url: serverURL.appending(path: "/v2/auth/bootstrap"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
