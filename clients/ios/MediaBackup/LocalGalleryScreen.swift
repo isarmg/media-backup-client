@@ -1,6 +1,7 @@
 import SwiftUI
 import Photos
 import AVKit
+import os
 
 struct LocalMedia: Identifiable {
     let id: String
@@ -30,14 +31,19 @@ struct LocalMedia: Identifiable {
     }
 }
 enum LocalCatalog {
+    private static let log = Logger(subsystem: "org.sarmg.mediabackup", category: "LocalCatalog")
     static func scan(store: TransferStore, album: String?) throws -> [PhotoAlbum] {
+        log.info("catalog begin")
         try store.gallery(["op": "begin_catalog"])
+        log.info("catalog database ready")
         let authorization = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        log.info("catalog authorization \(authorization.rawValue)")
         guard authorization == .authorized || authorization == .limited else { return [] }
         let fetch: PHFetchResult<PHAsset>
         if let album, let collection = PHAssetCollection.fetchAssetCollections(withLocalIdentifiers: [album], options: nil).firstObject {
             fetch = PHAsset.fetchAssets(in: collection, options: nil)
         } else { fetch = PHAsset.fetchAssets(with: nil) }
+        log.info("catalog fetched \(fetch.count) assets")
         var page: [[String: Any]] = []
         for index in 0..<fetch.count {
             let asset = fetch.object(at: index)
@@ -51,7 +57,10 @@ enum LocalCatalog {
             if page.count == 200 { try store.gallery(["op": "catalog", "items": page]); page.removeAll(keepingCapacity: true) }
         }
         if !page.isEmpty { try store.gallery(["op": "catalog", "items": page]) }
-        return PhotoScanner().albums()
+        log.info("catalog stored; reading albums")
+        let albums = PhotoScanner().albums()
+        log.info("catalog finished with \(albums.count) albums")
+        return albums
     }
     static func page(store: TransferStore, kind: String?, unbacked: Bool, offset: Int, limit: Int = 150) throws -> [LocalMedia] {
         let raw = try store.gallery(["op": "local_page", "album": NSNull(), "media_kind": kind as Any? ?? NSNull(), "unbacked": unbacked, "offset": offset, "limit": limit]) as? [[String: Any]] ?? []

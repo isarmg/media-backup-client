@@ -113,17 +113,29 @@ jobs:
       - run: brew install xcodegen
       - run: ./scripts/build-ios-rust.sh
       - run: cd clients/ios && xcodegen generate
-      - name: Run iOS account, navigation and state isolation tests
+      - name: Run iOS account and state isolation tests
+        timeout-minutes: 10
         run: |
           simulator_udid="$(xcrun simctl list devices available -j | python3 -c 'import json, sys; devices = json.load(sys.stdin)["devices"]; print(next(device["udid"] for runtime, entries in devices.items() if runtime.startswith("com.apple.CoreSimulator.SimRuntime.iOS-27-") for device in entries if device["name"].startswith("iPhone") and device.get("isAvailable")))')"
           test -n "$simulator_udid"
-          bash scripts/seed-ios-ui.sh "$simulator_udid"
-          xcodebuild -project clients/ios/MediaBackup.xcodeproj -scheme MediaBackup -sdk iphonesimulator -destination "id=$simulator_udid" CODE_SIGNING_ALLOWED=NO -derivedDataPath clients/ios/DerivedData -resultBundlePath clients/ios/TestResults.xcresult -parallel-testing-enabled NO test
-      - name: Export iOS UI screenshots
+          echo "MEDIA_BACKUP_TEST_SIMULATOR=$simulator_udid" >> "$GITHUB_ENV"
+          xcodebuild -project clients/ios/MediaBackup.xcodeproj -scheme MediaBackup -sdk iphonesimulator -destination "id=$simulator_udid" CODE_SIGNING_ALLOWED=NO -derivedDataPath clients/ios/DerivedData -only-testing:MediaBackupTests -parallel-testing-enabled NO test
+      - name: Run iOS login and gallery UI tests
+        timeout-minutes: 8
+        run: |
+          bash scripts/seed-ios-ui.sh "$MEDIA_BACKUP_TEST_SIMULATOR"
+          xcodebuild -project clients/ios/MediaBackup.xcodeproj -scheme MediaBackup -sdk iphonesimulator -destination "id=$MEDIA_BACKUP_TEST_SIMULATOR" CODE_SIGNING_ALLOWED=NO -derivedDataPath clients/ios/DerivedData -only-testing:MediaBackupUITests -resultBundlePath clients/ios/TestResults.xcresult -parallel-testing-enabled NO test
+      - name: Export iOS UI screenshots and diagnostics
         if: always()
         run: |
-          if test -d clients/ios/TestResults.xcresult; then
-            xcrun xcresulttool export attachments --path clients/ios/TestResults.xcresult --output-path dist/ios-ui
+          mkdir -p dist/ios-ui
+          runner_data="$(xcrun simctl get_app_container "$MEDIA_BACKUP_TEST_SIMULATOR" org.sarmg.mediabackup.uitests.xctrunner data 2>/dev/null || true)"
+          if test -n "$runner_data"; then
+            find "$runner_data/Documents" -name '*.png' -exec cp {} dist/ios-ui/ \;
+          fi
+          xcrun simctl spawn "$MEDIA_BACKUP_TEST_SIMULATOR" log show --last 15m --style compact --predicate 'subsystem == "org.sarmg.mediabackup"' > dist/ios-ui/gallery.log || true
+          if test -f clients/ios/TestResults.xcresult/Info.plist; then
+            xcrun xcresulttool export attachments --path clients/ios/TestResults.xcresult --output-path dist/ios-ui/attachments
           fi
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()

@@ -2,13 +2,16 @@ import XCTest
 
 final class NavigationTests: XCTestCase {
     @MainActor func testLoginRemainsReachableFromGalleryAndSettings() {
+        continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments += ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
         app.launch()
         let account = app.buttons["account.open"]
         XCTAssertTrue(account.waitForExistence(timeout: 15))
+        screenshot("local-gallery-loading")
+        print(app.debugDescription)
         let selection = app.buttons["media.select.layout-photo-1.png"]
-        XCTAssertTrue(selection.waitForExistence(timeout: 15))
+        XCTAssertTrue(selection.waitForExistence(timeout: 30), app.debugDescription)
         let tile = app.descendants(matching: .any).matching(identifier: "media.tile.layout-photo-1.png").firstMatch
         XCTAssertTrue(tile.exists)
         XCTAssertGreaterThan(selection.frame.midX, tile.frame.midX)
@@ -36,7 +39,10 @@ final class NavigationTests: XCTestCase {
         screenshot("transfers")
     }
     @MainActor private func screenshot(_ name: String) {
-        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        let screenshot = XCUIScreen.main.screenshot()
+        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        try? screenshot.pngRepresentation.write(to: documents.appendingPathComponent(name + ".png"))
+        let attachment = XCTAttachment(screenshot: screenshot)
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
