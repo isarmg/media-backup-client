@@ -19,6 +19,8 @@ if [[ "$(uname -s)" == Darwin ]]; then
 (allow default)
 (deny file-read* (literal "$scratch"))
 EOF
+  cargo build --locked -p media-backup-client-core --example sandbox_database
+  sandbox-exec -f "$scratch/test.sb" "$target_dir/debug/examples/sandbox_database" "$scratch/container"
   sandbox-exec -f "$scratch/test.sb" "$scratch/abi" "$scratch/container"
 else
   "$scratch/abi" "$scratch"
