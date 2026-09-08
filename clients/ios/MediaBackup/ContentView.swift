@@ -57,8 +57,12 @@ struct ContentView: View {
             Text("选择要备份的媒体").font(.title.bold())
             Text("在系统照片网格中预览并勾选，确认后只备份所选项目。")
             Button("取消本次选择") { selection = []; confirmPicker = false }
-            List(selection.indices, id: \.self) { index in
-                Text(selection[index].itemProvider.suggestedName ?? "媒体 \(index + 1)")
+            ScrollView {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), spacing: 8)], spacing: 8) {
+                    ForEach(selection.indices, id: \.self) { index in
+                        PickerSelectionThumbnail(result: selection[index], index: index)
+                    }
+                }
             }
             Text("已选择 \(selection.count - selectedVideos) 张照片、\(selectedVideos) 个视频；原始大小将在准备文件时确认。")
             Text("可访问 PhotoKit 原始资源时备份完整资产，否则保存选择器交付的导入副本。")

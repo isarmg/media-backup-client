@@ -38,6 +38,29 @@ final class NavigationTests: XCTestCase {
         app.tabBars.buttons["传输"].tap()
         screenshot("transfers")
     }
+    @MainActor func testSystemPickerConfirmationShowsThumbnailGrid() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments += ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        app.launch()
+        XCTAssertTrue(app.buttons["gallery.add"].waitForExistence(timeout: 20))
+        app.buttons["gallery.add"].tap()
+        app.buttons["gallery.system-picker"].tap()
+        let photo = app.collectionViews.cells.firstMatch
+        XCTAssertTrue(photo.waitForExistence(timeout: 20), app.debugDescription)
+        photo.tap()
+        let add = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ OR label BEGINSWITH %@", "添加", "Add"))
+            .allElementsBoundByIndex.first(where: { $0.isHittable })
+        XCTAssertNotNil(add, app.debugDescription)
+        add?.tap()
+        XCTAssertTrue(app.staticTexts["选择要备份的媒体"].waitForExistence(timeout: 15), app.debugDescription)
+        let preview = app.descendants(matching: .any).matching(identifier: "selection.preview.0").firstMatch
+        XCTAssertTrue(preview.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertGreaterThan(preview.frame.width, 80)
+        screenshot("selected-media-confirmation")
+        app.buttons["取消本次选择"].tap()
+    }
+
     @MainActor private func screenshot(_ name: String) {
         let screenshot = XCUIScreen.main.screenshot()
         let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]

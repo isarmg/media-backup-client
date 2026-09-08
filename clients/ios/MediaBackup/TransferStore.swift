@@ -26,13 +26,17 @@ final class TransferStore: @unchecked Sendable {
                             open: (String) throws -> TransferStore = { try TransferStore(profile: $0) }) throws -> (profile: String, store: TransferStore) {
         let legacyProfile = profileKey(server: server, username: username)
         let legacy = try open(legacyProfile)
-        let binding = try legacy.client.transfer(["op": "binding"]) as? [String: Any]
+        let binding: [String: Any]?
+        do { binding = try legacy.client.transfer(["op": "binding"]) as? [String: Any] }
+        catch { throw ClientFailure.message("读取本地账户绑定失败：\(error.localizedDescription)") }
         let matches = binding == nil || ((binding?["server"] as? String) == server &&
             (binding?["account_id"] as? String).flatMap(UUID.init(uuidString:)) == accountId)
         let profile = matches ? legacyProfile : accountProfileKey(server: server, accountId: accountId)
         let target = matches ? legacy : try open(profile)
-        try target.client.transfer(["op": "bind", "server": server,
-            "account_id": accountId.uuidString, "device_id": deviceId.uuidString])
+        do {
+            try target.client.transfer(["op": "bind", "server": server,
+                "account_id": accountId.uuidString, "device_id": deviceId.uuidString])
+        } catch { throw ClientFailure.message("服务器认证成功，但本地绑定失败：\(error.localizedDescription)") }
         return (profile, target)
     }
 
@@ -43,7 +47,8 @@ final class TransferStore: @unchecked Sendable {
             appropriateFor: nil, create: true).resolvingSymlinksInPath().appendingPathComponent(profile, isDirectory: true)
         try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o700])
-        client = try RustClient(databasePath: support.appendingPathComponent(MobileContractV02.databaseFilename).path)
+        do { client = try RustClient(databasePath: support.appendingPathComponent(MobileContractV02.databaseFilename).path) }
+        catch { throw ClientFailure.message("打开手机备份数据库失败：\(error.localizedDescription)") }
         staging = support.appendingPathComponent(MobileContractV02.stagingDirectory, isDirectory: true)
         try FileManager.default.createDirectory(at: staging.appendingPathComponent("sources"), withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o700])

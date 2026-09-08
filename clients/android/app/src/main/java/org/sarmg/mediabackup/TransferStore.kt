@@ -19,8 +19,9 @@ internal object TransferStore {
 
     @Synchronized fun open(context: Context, profile: String): Session = sessions.getOrPut(profile) {
         val paths = NativeStorage.prepare(context, profile)
-        val handle = NativeBridgeV2.open(paths.database.path,
-            MobileContractV02.putIdentity(JSONObject()).put("part_size", 16 * 1024 * 1024).toString())
+        val handle = try { NativeBridgeV2.open(paths.database.path,
+            MobileContractV02.putIdentity(JSONObject()).put("part_size", 16 * 1024 * 1024).toString()) }
+        catch (error: Exception) { throw IllegalStateException("打开手机备份数据库失败：${error.message}", error) }
         check(handle != 0L) { "无法打开备份记录" }
         Session(handle, paths, profile)
     }
@@ -28,12 +29,14 @@ internal object TransferStore {
     /** Reuse matching queues; a recreated account gets a separate queue without deleting the old one. */
     fun bindAccount(context: Context, server: String, username: String, accountId: String, deviceId: String): Session {
         val legacy = open(context, profileKey(server, username))
-        val binding = command(legacy.handle, "binding") as? JSONObject
+        val binding = try { command(legacy.handle, "binding") as? JSONObject }
+        catch (error: Exception) { throw IllegalStateException("读取本地账户绑定失败：${error.message}", error) }
         val matches = binding == null || (binding.getString("server") == server &&
             java.util.UUID.fromString(binding.getString("account_id")) == java.util.UUID.fromString(accountId))
         val target = if (matches) legacy else open(context, accountProfileKey(server, accountId))
-        command(target.handle, "bind", JSONObject().put("server", server)
-            .put("account_id", accountId).put("device_id", deviceId))
+        try { command(target.handle, "bind", JSONObject().put("server", server)
+            .put("account_id", accountId).put("device_id", deviceId)) }
+        catch (error: Exception) { throw IllegalStateException("服务器认证成功，但本地绑定失败：${error.message}", error) }
         return target
     }
 

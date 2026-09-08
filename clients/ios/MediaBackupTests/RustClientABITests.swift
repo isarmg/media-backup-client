@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 import MediaBackupRust
 @testable import MediaBackup
 
@@ -14,6 +15,17 @@ final class RustClientABITests: XCTestCase {
         XCTAssertNil(output.bytes.data)
         XCTAssertEqual(output.bytes.length, 0)
         XCTAssertEqual(sarmg_ffi_result_free_v2(&output), Int32(SARMG_FFI_OK))
+    }
+
+    func testPickerPreviewDecodesImageDataAndRejectsOpaqueNames() throws {
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 800, height: 600)).image { context in
+            UIColor.red.setFill(); context.fill(CGRect(x: 0, y: 0, width: 800, height: 600))
+        }
+        let data = try XCTUnwrap(image.pngData())
+        let preview = try XCTUnwrap(PickerPreview.image(data as NSData))
+        XCTAssertLessThanOrEqual(max(preview.size.width, preview.size.height), 320)
+        XCTAssertNil(PickerPreview.image("opaque-provider-identifier" as NSString))
+        XCTAssertNil(PickerPreview.image(try XCTUnwrap(URL(string: "https://example.com/image.jpg")) as NSURL))
     }
 
     func testNativeFailureDescriptionIsVisible() {

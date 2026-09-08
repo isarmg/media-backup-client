@@ -105,10 +105,10 @@ struct LocalGalleryScreen: View {
                         .disabled(busy).buttonStyle(.bordered)
                     Spacer()
                     Menu {
-                        Button("从系统照片选择", action: onSystemPicker)
+                        Button("从系统照片选择", action: onSystemPicker).accessibilityIdentifier("gallery.system-picker")
                         Button("授权 / 调整照片范围") { Task { await requestAccess() } }
                         Button("刷新图库") { Task { await load(scan: true) } }
-                    } label: { Label("添加照片", systemImage: "plus") }.buttonStyle(.bordered)
+                    } label: { Label("添加照片", systemImage: "plus") }.buttonStyle(.bordered).accessibilityIdentifier("gallery.add")
                 }
                 Text([albums.first(where: { $0.id == album })?.name ?? "全部相册",
                       kind == "video" ? "视频" : kind == "photo" ? "照片" : "照片和视频",
