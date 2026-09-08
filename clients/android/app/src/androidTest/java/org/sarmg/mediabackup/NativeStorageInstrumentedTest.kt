@@ -11,6 +11,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
+import java.nio.file.Files
 import java.util.UUID
 
 /** Actual JNI and Android sandbox: no mocked native results or production data. */
@@ -100,7 +101,7 @@ class NativeStorageInstrumentedTest {
             val handle = open(paths)
             NativeBridgeV2.close(handle)
         } finally {
-            Os.unlink(alias.path)
+            Files.delete(alias.toPath())
         }
     }
 
@@ -123,7 +124,7 @@ class NativeStorageInstrumentedTest {
             assertThrows(Exception::class.java) { storage() }
             assertEquals(0x1ed, Os.stat(target.path).st_mode and 0x1ff)
         } finally {
-            Os.unlink(link.path)
+            Files.delete(link.toPath())
         }
     }
 
@@ -136,7 +137,7 @@ class NativeStorageInstrumentedTest {
             assertThrows(RuntimeException::class.java) { open(paths) }
             assertEquals("do not modify", target.readText())
         } finally {
-            Os.unlink(paths.database.path)
+            Files.delete(paths.database.toPath())
         }
     }
 }
