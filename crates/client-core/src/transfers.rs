@@ -25,6 +25,7 @@ pub enum TransferCommand {
         batch_id: String,
     },
     Batches {},
+    Binding {},
     Bind {
         server: String,
         account_id: String,
@@ -92,6 +93,17 @@ impl Client {
         let tx = connection.transaction()?;
         let result = match request.command {
             TransferCommand::Gallery { .. } => unreachable!(),
+            TransferCommand::Binding {} => {
+                let binding: Option<(String, String, String)> = tx
+                    .query_row(
+                        "SELECT server,account_id,device_id FROM profile_binding WHERE singleton=1",
+                        [],
+                        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                    )
+                    .optional()?;
+                binding.map_or(Value::Null, |(server, account_id, device_id)|
+                    json!({"server":server,"account_id":account_id,"device_id":device_id}))
+            }
             TransferCommand::Bind {
                 server,
                 account_id,

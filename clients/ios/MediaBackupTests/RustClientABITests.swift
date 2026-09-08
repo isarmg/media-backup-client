@@ -16,6 +16,45 @@ final class RustClientABITests: XCTestCase {
         XCTAssertEqual(sarmg_ffi_result_free_v2(&output), Int32(SARMG_FFI_OK))
     }
 
+    func testNativeFailureDescriptionIsVisible() {
+        XCTAssertEqual(ClientFailure.message("备份记录暂时不可用").localizedDescription, "备份记录暂时不可用")
+    }
+
+    func testRecreatedAccountKeepsOldQueueAndReloginKeepsCurrentQueue() throws {
+        let server = "https://backup.example.com", username = "login-\(UUID().uuidString)"
+        let account = UUID(), replacement = UUID()
+        var profiles = Set<String>()
+        defer {
+            if let support = try? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
+                appropriateFor: nil, create: false) {
+                for profile in profiles { try? FileManager.default.removeItem(at: support.appendingPathComponent(profile)) }
+            }
+        }
+        try autoreleasepool {
+            var stores: [String: TransferStore] = [:]
+            func login(_ id: UUID) throws -> (profile: String, store: TransferStore) {
+                try TransferStore.bindAccount(server: server, username: username, accountId: id, deviceId: UUID()) { key in
+                    profiles.insert(key)
+                    if let value = stores[key] { return value }
+                    let value = try TransferStore(profile: key); stores[key] = value; return value
+                }
+            }
+            let original = try login(account)
+            try original.store.client.transfer(["op": "create_batch", "id": UUID().uuidString,
+                "items": [["id": "selected", "source": "local-photo"]]])
+            XCTAssertEqual(original.profile, try login(account).profile)
+            let recreated = try login(replacement)
+            XCTAssertNotEqual(original.profile, recreated.profile)
+            XCTAssertTrue(try recreated.store.batches().isEmpty)
+            XCTAssertEqual(recreated.profile, try login(replacement).profile)
+            XCTAssertEqual(try original.store.batches().count, 1)
+            let binding = try original.store.client.transfer(["op": "binding"]) as? [String: Any]
+            XCTAssertEqual(binding?["account_id"] as? String, account.uuidString)
+            XCTAssertEqual(original.profile, try login(account).profile)
+            XCTAssertEqual(try original.store.batches().count, 1)
+        }
+    }
+
     func testRustClientUsesLengthDelimitedUnicodeAndClosesBeforeReopen() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("ffi-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)

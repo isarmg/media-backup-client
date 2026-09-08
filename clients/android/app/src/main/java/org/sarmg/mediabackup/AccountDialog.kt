@@ -58,11 +58,10 @@ internal fun AccountDialog(context: Context, config: SecureConfig, onDismiss: ()
                         val token = api.bootstrap(user, secret, Build.MODEL)
                         check(token.isNotBlank()) { "服务器没有返回有效登录凭据" }
                         check(config.connection() == expected) { "账户已改变，请重新登录" }
-                        TransferStore.command(TransferStore.open(context, profileKey(address, user)).handle, "bind", JSONObject()
-                            .put("server", address).put("account_id", api.accountId).put("device_id", api.deviceId))
-                        api to token
+                        val store = TransferStore.bindAccount(context, address, user, api.accountId, api.deviceId)
+                        Triple(api, token, store.profile)
                     }
-                    config.saveAuthenticatedConnection(expected, address, user, secret, result.first, result.second)
+                    config.saveAuthenticatedConnection(expected, address, user, secret, result.first, result.second, result.third)
                     withContext(Dispatchers.IO) {
                         androidx.work.WorkManager.getInstance(context).cancelAllWorkByTag(BackupScheduler.TAG).result.get()
                     }

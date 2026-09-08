@@ -243,4 +243,7 @@ final class RustClient: @unchecked Sendable {
     }
 }
 
-enum ClientFailure: Error { case message(String) }
+enum ClientFailure: LocalizedError {
+    case message(String)
+    var errorDescription: String? { switch self { case .message(let value): value } }
+}

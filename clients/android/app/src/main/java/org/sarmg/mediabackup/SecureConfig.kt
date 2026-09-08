@@ -31,18 +31,22 @@ class SecureConfig(context: Context) {
 
     companion object { private val connectionLock = Any() }
     data class Connection(val server: String, val username: String, val password: String, val token: String,
-        val accountId: String, val deviceId: String) { val profile get() = profileKey(server, username) }
-    val profile: String get() = synchronized(connectionLock) { profileKey(serverUrl, username) }
-    fun connection(): Connection = synchronized(connectionLock) { Connection(serverUrl, username, password, bearerToken, accountId, deviceId) }
+        val accountId: String, val deviceId: String, val profile: String = profileKey(server, username))
+    val profile: String get() = synchronized(connectionLock) {
+        preferences.getString("queue_profile_v04", null) ?: profileKey(serverUrl, username)
+    }
+    fun connection(): Connection = synchronized(connectionLock) { Connection(serverUrl, username, password, bearerToken, accountId, deviceId, profile) }
     fun saveCredentials(server: String, user: String, secret: String) = synchronized(connectionLock) {
         serverUrl = server; username = user; password = secret
     }
 
     fun saveAuthenticatedConnection(expected: Connection, server: String, user: String, secret: String,
-        api: BackupApi, token: String) = synchronized(connectionLock) {
+        api: BackupApi, token: String, storageProfile: String) = synchronized(connectionLock) {
         check(connection() == expected) { "账户已改变，请重新登录" }
         check(token.isNotBlank()) { "服务器没有返回有效登录凭据" }
-        preferences.edit().putString("server_url", server).putString("username", user)
+        require(storageProfile.matches(Regex("[0-9a-f]{64}")))
+        preferences.edit().putString("queue_profile_v04", storageProfile)
+            .putString("server_url", server).putString("username", user)
             .putString("password", secret).putString("account_id_v04", api.accountId)
             .putString("device_id_v04", api.deviceId).putString(MobileContractV02.TOKEN_KEY, token).apply()
     }
@@ -52,7 +56,7 @@ class SecureConfig(context: Context) {
         set(value) {
             val normalized = value.trim().trimEnd('/')
             val editor = preferences.edit().putString("server_url", normalized)
-            if (normalized != serverUrl) editor.remove(MobileContractV02.TOKEN_KEY)
+            if (normalized != serverUrl) editor.remove(MobileContractV02.TOKEN_KEY).remove("queue_profile_v04")
             editor.apply()
         }
 
@@ -61,7 +65,7 @@ class SecureConfig(context: Context) {
         set(value) {
             val normalized = value.trim()
             val editor = preferences.edit().putString("username", normalized)
-            if (normalized != username) editor.remove(MobileContractV02.TOKEN_KEY)
+            if (normalized != username) editor.remove(MobileContractV02.TOKEN_KEY).remove("queue_profile_v04")
             editor.apply()
         }
 
@@ -85,6 +89,7 @@ class SecureConfig(context: Context) {
         set(value) = preferences.edit().putString("device_id_v04", value).apply()
     fun acceptBootstrap(api: BackupApi, token: String, expectedProfile: String) = synchronized(connectionLock) {
         check(profile == expectedProfile) { "账户已切换" }
+        check(accountId.isBlank() || accountId.equals(api.accountId, ignoreCase = true)) { "服务器账户已重建，请重新登录；旧备份队列已保留" }
         accountId = api.accountId; deviceId = api.deviceId; bearerToken = token
     }
 

@@ -92,6 +92,33 @@ class NativeStorageInstrumentedTest {
         }
     }
 
+    @Test fun recreatedAccountUsesSeparateQueueAndPreservesExistingWork() {
+        val isolated = object : ContextWrapper(context) { override fun getDataDir(): File = root }
+        val server = "https://backup.example.com"
+        val username = "login-${UUID.randomUUID()}"
+        val oldAccount = UUID.randomUUID().toString()
+        val newAccount = UUID.randomUUID().toString()
+        val handles = mutableSetOf<Long>()
+        fun login(account: String): TransferStore.Session = TransferStore.bindAccount(
+            isolated, server, username, account, UUID.randomUUID().toString()
+        ).also { handles += it.handle }
+        try {
+            val original = login(oldAccount)
+            val batch = UUID.randomUUID().toString()
+            TransferStore.command(original.handle, "create_batch", JSONObject().put("id", batch)
+                .put("items", org.json.JSONArray().put(JSONObject().put("id", "selected").put("source", "local-photo"))))
+            assertEquals(original.profile, login(oldAccount).profile)
+            val recreated = login(newAccount)
+            assertNotEquals(original.profile, recreated.profile)
+            assertEquals(0, TransferStore.batches(recreated.handle).length())
+            assertEquals(recreated.profile, login(newAccount).profile)
+            assertEquals(1, TransferStore.batches(original.handle).length())
+            assertEquals(oldAccount, (TransferStore.command(original.handle, "binding") as JSONObject).getString("account_id"))
+            assertEquals(original.profile, login(oldAccount).profile)
+            assertEquals(1, TransferStore.batches(original.handle).length())
+        } finally { handles.forEach { NativeBridgeV2.close(it) } }
+    }
+
     @Test fun resolvesOnlySystemProvidedRootAlias() {
         val alias = File(root, "system-root-alias")
         Os.symlink(root.path, alias.path)

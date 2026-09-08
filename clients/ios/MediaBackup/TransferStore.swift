@@ -7,6 +7,12 @@ func profileKey(server: String, username: String) -> String {
         .map { String(format: "%02x", $0) }.joined()
 }
 
+func accountProfileKey(server: String, accountId: UUID) -> String {
+    let normalized = server.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+    return SHA256.hash(data: Data("media-backup-account-v1\n\(normalized)\n\(accountId.uuidString.lowercased())".utf8))
+        .map { String(format: "%02x", $0) }.joined()
+}
+
 struct TransferBatch: Identifiable {
     let id: String
     let count: Int
@@ -16,6 +22,20 @@ struct TransferBatch: Identifiable {
 }
 
 final class TransferStore: @unchecked Sendable {
+    static func bindAccount(server: String, username: String, accountId: UUID, deviceId: UUID,
+                            open: (String) throws -> TransferStore = { try TransferStore(profile: $0) }) throws -> (profile: String, store: TransferStore) {
+        let legacyProfile = profileKey(server: server, username: username)
+        let legacy = try open(legacyProfile)
+        let binding = try legacy.client.transfer(["op": "binding"]) as? [String: Any]
+        let matches = binding == nil || ((binding?["server"] as? String) == server &&
+            (binding?["account_id"] as? String).flatMap(UUID.init(uuidString:)) == accountId)
+        let profile = matches ? legacyProfile : accountProfileKey(server: server, accountId: accountId)
+        let target = matches ? legacy : try open(profile)
+        try target.client.transfer(["op": "bind", "server": server,
+            "account_id": accountId.uuidString, "device_id": deviceId.uuidString])
+        return (profile, target)
+    }
+
     let client: RustClient
     let staging: URL
     init(profile: String) throws {

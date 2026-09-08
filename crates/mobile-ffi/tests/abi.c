@@ -60,6 +60,17 @@ int main(int argc, char **argv) {
     release(&out);
     assert(mb_transfer_v2(first, NULL, 1, &out) == SARMG_FFI_INVALID_ARGUMENT);
     release(&out);
+    const char bind[] = "{\"product\":\"media-backup\",\"application_version\":\"0.4.0\",\"revision\":1,\"state_epoch\":\"media-backup-mobile-v0.4-r1\",\"command\":{\"op\":\"bind\",\"server\":\"https://backup.example.com\",\"account_id\":\"00000000-0000-4000-8000-000000000001\",\"device_id\":\"00000000-0000-4000-8000-000000000002\"}}";
+    int code = mb_transfer_v2(first, (const uint8_t *)bind, sizeof(bind)-1, &out);
+    printf("fresh login bind: status %d\n", code); assert(code == SARMG_FFI_OK); release(&out);
+    const char binding[] = "{\"product\":\"media-backup\",\"application_version\":\"0.4.0\",\"revision\":1,\"state_epoch\":\"media-backup-mobile-v0.4-r1\",\"command\":{\"op\":\"binding\"}}";
+    assert(mb_transfer_v2(first, (const uint8_t *)binding, sizeof(binding)-1, &out) == SARMG_FFI_OK);
+    assert(out.bytes.length > 0); release(&out);
+    char changed[sizeof(bind)]; memcpy(changed, bind, sizeof(bind));
+    char *account = strstr(changed, "00000000-0000-4000-8000-000000000001"); assert(account); account[35] = '3';
+    code = mb_transfer_v2(first, (const uint8_t *)changed, sizeof(changed)-1, &out);
+    printf("same username after account recreation: Native status %d: %.*s\n", code, (int)out.bytes.length, out.bytes.data);
+    assert(code == SARMG_FFI_INTERNAL_ERROR); release(&out);
     assert(mb_close_v2(first, &out) == SARMG_FFI_OK);
     release(&out);
     assert(mb_close_v2(first, &out) == SARMG_FFI_INVALID_HANDLE);
