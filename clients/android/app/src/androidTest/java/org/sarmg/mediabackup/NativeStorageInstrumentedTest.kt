@@ -95,8 +95,10 @@ class NativeStorageInstrumentedTest {
     @Test fun authorizationRotationReusesInstanceQueueAndIdentityDriftFailsClosed() {
         val isolated = object : ContextWrapper(context) { override fun getDataDir(): File = root }
         val server = "https://backup.example.com"
-        val oldCode = "code-${UUID.randomUUID()}", newCode = "code-${UUID.randomUUID()}"
-        val account = UUID.randomUUID().toString(), device = UUID.randomUUID().toString()
+        val oldCode = "code-${UUID.randomUUID()}"
+        val newCode = "code-${UUID.randomUUID()}"
+        val account = UUID.randomUUID().toString()
+        val device = UUID.randomUUID().toString()
         val handles = mutableSetOf<Long>()
         fun pair(code: String, accountId: String = account): TransferStore.Session = TransferStore.bindAccount(
             isolated, server, code, accountId, device
