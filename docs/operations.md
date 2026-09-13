@@ -1,224 +1,114 @@
-# Media Backup 运维文档
+# Media Backup Client 运维文档
 
-## 1. 生产拓扑与前置条件
+本文只描述 `0.4.7` Client：Rust 移动核心与 FFI、Android 应用和 iOS 应用。Server、管理 Web、
+systemd、Caddy 和 Server 数据目录不属于本仓库；服务端部署请使用
+[media-backup-server](https://github.com/isarmg/media-backup-server) 的 Release 文档。
 
-正式 Server **只支持 Linux x86_64**，并要求 systemd、Python 3、GNU coreutils/tar，以及同机
-Caddy/Nginx。`aarch64` 主机、非 Linux 主机和非 GNU Rust target 都会失败关闭，不存在交叉架构 fallback：
+## 1. 当前边界与状态
 
-```text
-Internet -> HTTPS reverse proxy -> 127.0.0.1:8080 Media Backup
-                                      ├─ SQLite /var/lib/isarmg/media-backup/db/app.db
-                                      └─ media  /var/lib/isarmg/media-backup/data
-```
+- Android 与 iOS 只连接 HTTPS Server 根地址，移动 API 前缀为 `/v2`。
+- 每个移动实例使用管理员分配的长期授权码配对。授权码改变时旧设备 Token 失效，Client 保留同实例队列
+  身份并重新配对；服务端返回不同实例身份时失败关闭。
+- Rust 本地合同为 `media-backup-mobile-v0.4-r1`，数据库只接受当前 schema revision 2，不执行旧队列迁移。
+- 授权码、设备 Token 与账户标识是客户端秘密；Android 存入应用私有配置，iOS 存入 Keychain。日志、
+  命令参数和诊断输出不得包含这些值。
+- 本地 SQLite、prepared parts 和系统照片库共同构成待传状态。不要手改数据库，也不要递归删除
+  `backup-staging-v0.3-r1/prepared/` 来处理单个失败任务。
 
-媒体保存为明文字节，必须启用主机/卷加密、最小权限和加密异地备份。
+## 2. 通用 Rust、合同与 FFI 验证
 
-## 2. 构建与验证发行归档
-
-维护者从干净的 `0.3.0` checkout 构建：
-
-```bash
-revision="$(git rev-parse HEAD)"
-MEDIA_BACKUP_SOURCE_REVISION="$revision" cargo build --release --locked \
-  -p media-backup-server --target x86_64-unknown-linux-gnu
-mkdir -p "$PWD/dist"
-./scripts/build-server-release.sh \
-  "$PWD/target/x86_64-unknown-linux-gnu/release/media-backup-server" \
-  "$revision" "$PWD/dist"
-./scripts/test-deployment.sh "$PWD/dist/media-backup-server-0.3.0-x86_64-unknown-linux-gnu.tar.gz"
-```
-
-Cargo release build script 拒绝其他 target；归档脚本还会核对构建主机为 Linux x86_64，并直接检查输入
-二进制为 64 位 little-endian x86_64 ELF。构建器拒绝覆盖输出。归档 manifest 固定产品、版本、40 位
-revision、target、`v2` 移动 API、`plain-v1`、Schema、移动 FFI、Web 与全树文件权限/大小/SHA-256；
-额外文件、链接、特殊文件或硬链接别名均失败。
-
-## 3. 安装
+从干净 checkout 执行：
 
 ```bash
-grep ' media-backup-server-0.3.0-x86_64-unknown-linux-gnu.tar.gz$' SHA256SUMS \
-  | sha256sum --check -
-tar -xzf media-backup-server-0.3.0-x86_64-unknown-linux-gnu.tar.gz
-cd media-backup-server-0.3.0-x86_64-unknown-linux-gnu
-./bin/media-backup-server release-identity
-./bin/media-backup-server release-verify "$PWD"
-sudo ./scripts/setup-wsl.sh
-sudoedit /etc/isarmg/media-backup.env
-sudo /opt/isarmg/media-backup/releases/0.3.0/scripts/start-server-wsl.sh
+./scripts/verify-release-version.sh
+./scripts/check-mobile-v02-contract.sh
+./scripts/check-workflow-supply-chain.sh
+cargo fmt --all -- --check
+cargo check --workspace --locked
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo test --workspace --locked
+./scripts/test-mobile-ffi-c.sh
 ```
 
-安装只允许创建缺失的 `/opt/isarmg/media-backup/releases/0.3.0`，不会覆盖或复用。同版本重装应先按
-运维变更流程处理现有部署，而不是绕过 no-clobber。环境文件首次以 `0600` 排他创建；替换自动生成的
-`BOOTSTRAP_ADMIN_USERNAME`、`BOOTSTRAP_ADMIN_PASSWORD`、`MEDIA_BACKUP_CREDENTIALS_KEY`、`METRICS_TOKEN` 并删除初始化标记后才能启动。登录候选 username
-必须是 1–64 bytes 的可打印 ASCII；Foundation 会去除首尾 ASCII whitespace、转为 ASCII 小写，再要求
-canonical 值为 3–64 bytes、首尾字母数字且全部字符仅为 `[a-z0-9._-]`，因此 `@`、Unicode、内部空白、
-首尾分隔符都被拒绝。持久化和 Session 只接受已经 canonical 的值；`ADMIN_EMAIL` 不是配置别名。
+Rust 使用仓库固定的 1.98.0 工具链。`check-mobile-v02-contract.sh` 核对 Rust/Kotlin/Swift、C header、
+数据库 identity 与 API DTO，任何一端只改字段都不算完成。
 
-## 4. 核心配置
+## 3. Android 构建与验收
 
-| 变量 | 作用 | 生产要求 |
-|---|---|---|
-| `DATABASE_URL` | 当前 SQLite 路径 | 与媒体目录分离，路径父链不可是链接 |
-| `DATA_DIR` | 原始媒体、缩略图和临时分块根 | 独立容量与 inode 监控 |
-| `BIND` | HTTP 监听地址 | 推荐 `127.0.0.1:8080` |
-| `BOOTSTRAP_ADMIN_USERNAME` | 无管理员时创建的初始管理员 username | 默认 admin；按 Foundation 规则规范化；已有管理员时不创建或覆盖身份 |
-| `BOOTSTRAP_ADMIN_PASSWORD` | 初始管理员密码 | 仅无管理员时必填；已有管理员时不重置密码；生产由秘密管理器生成 |
-| `MEDIA_BACKUP_CREDENTIALS_KEY` | 实例授权码信封加密主密钥 | 必填；Base64 解码后必须恰好 32 bytes，持久保存在秘密管理器中 |
-| `REQUIRE_HTTPS` | 强制可信 HTTPS 语义 | 必须为 `true` |
-| `DEVELOPMENT` | 本机开发开关 | 生产必须为 `false` |
-| `TRUSTED_PROXY_CIDRS` | 直接可信代理地址 | 仅列真实直连代理 |
-| `METRICS_TOKEN` | `/metrics` 独立凭据 | 由秘密管理器生成和轮换 |
-
-浏览器认证合同只有三条：`POST /api/v2/auth/login`、`GET /api/v2/auth/session`、
-`POST /api/v2/auth/logout`。登录 body 精确为 `{username,password}`；登录和 session 成功体精确为
-`{authenticated:true,user_id,username,role:"admin",csrf_token}`。`accounts` 只是备份数据租户；管理员为租户下的每个
-客户端实例创建独立授权码，移动端用该码完成一次配对并取得设备 Token。授权码更换会立即使旧 Token 失效，客户端必须重新配对。
-用户管理等业务位于 `/api/v2/admin/*`，移动端仍只使用 `/v2/*`。管理员 username 规范化、严格
-当前 Argon2id、登录准入、Session/CSRF 生命周期、Cookie 和安全审计均由 Foundation 的
-Admin Core、SQLite Store、Axum Adapter 拥有。空闲 30 分钟、绝对 12 小时、每管理员 32 个/全局 1024 个
-Session 是固定平台策略，不提供产品级 TTL 配置。管理员登录来源使用真实 socket peer，不信任转发来源头。
-
-当前移动合同的 `/v2/auth/bootstrap` 只接受 `authorization_code`、`device_name` 和 `platform`；不存在备份账户密码
-登录或旧请求回退。运维不得把 `BOOTSTRAP_ADMIN_USERNAME` 或管理员密码写入移动客户端配置。
-
-最小 Caddy 配置：
-
-```caddyfile
-media.example.com {
-    reverse_proxy 127.0.0.1:8080
-}
-```
-
-防火墙必须阻止客户端绕过代理直连 Axum。代理应覆盖来源头；服务从真实 socket peer 开始由右向左
-解析，未受信 peer 提供的转发头会被忽略。
-
-## 5. 日常检查
-
-```bash
-curl --fail http://127.0.0.1:8080/healthz
-curl --fail http://127.0.0.1:8080/readyz
-sudo /opt/isarmg/media-backup/releases/0.3.0/scripts/run-server-wsl.sh
-```
-
-启动脚本先检查 `uname`，二进制的 `serve-release` 再通过内核 `uname(2)` 检查 Linux x86_64，systemd 单元
-还有 `ConditionArchitecture=x86-64`。三层任何一层不满足都必须在读取业务配置和创建状态前失败。
-
-带环境配置运行：
-
-```bash
-media-backup-server doctor
-```
-
-`doctor` 检查当前元数据和 Schema 指纹、`integrity_check`、`foreign_key_check`、对象 Hash、上传恢复
-状态、无引用 blob 回收意图、可回滚数据库写探针与可清理存储探针。若报告待回收 blob，先在服务停止
-且同一环境配置下运行：
-
-```bash
-media-backup-server reconcile scan
-media-backup-server doctor
-```
-
-`reconcile scan` 与服务启动/120 秒周期使用同一协调路径和运行锁；它会重试未完成 upload commit、无引用
-blob rooted unlink/删行及 orphan commit staging 清理。永久删除响应 202 表示用户可见 metadata 已删除但
-物理 blob 尚待该协调路径收口，不能盲目重放 DELETE；204 才表示本次已完成物理回收。指标只暴露聚合
-数量和字节数，使用独立 Bearer Token。
-
-## 6. 当前数据库合同
-
-服务端 `product_metadata` 必须精确为 `application=media-backup`、`application_version=0.3.0`、
-`schema_revision=3`，Schema SHA-256 为
-`d65bf1183bc5bf3546738226c49711dbdbd520c5120a18df075273d5904bf51e`。移动队列对应
-`media-backup-client` 与 SHA-256
-`fb38736bbf8ac69eb694095e62302f73233e39df42cd2d38e3dd1284e2f02558`。
-
-数据库只在主文件不存在时创建。已存在空文件、非当前元数据或结构漂移会在业务写入前拒绝，不能
-现场手改指纹“修复”。
-
-## 7. 当前状态备份与恢复
-
-Media Backup 二进制不提供相关命令。停止服务后，由 `sarmg-upgrade` 把 SQLite 主文件及 sidecar 与
-`DATA_DIR` 作为同一一致性单元处理。遵循 3-2-1 策略，备份加密并定期在隔离环境执行完整恢复演练。
-恢复后先运行离线验证和 `doctor`，再开放流量。本轮不提供旧版本升级或历史格式读取。
-
-## 8. 移动端构建
-
-Android：
+安装 Android SDK/NDK 与 JDK 后构建 Rust arm64 库及 Debug 应用：
 
 ```powershell
 rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
 cargo install cargo-ndk
-.\scripts\build-android-rust.ps1
+./scripts/build-android-rust.ps1
 gradle -p clients/android testDebugUnitTest assembleDebug
 ```
 
-上述命令只生成不发布的 Debug APK，不得获得正式签名 Secret。正式 `v0.3.0` workflow 使用 application ID
-`org.sarmg.mediabackup`、alias `media-backup-android-release` 和受保护 `android-signing` Environment 中仅有的
-`MEDIA_BACKUP_ANDROID_SIGNING_PKCS12_BASE64`、`MEDIA_BACKUP_ANDROID_SIGNING_PKCS12_PASSWORD` 两个
-Secret 执行 `assembleRelease`。证书必须是 RSA 4096、`CA:FALSE`、Digital Signature/Code Signing，SHA-256
-必须精确为
-`0C:FC:28:11:D4:8C:DE:AB:3E:6D:85:70:29:D8:79:E0:01:AB:95:31:C0:67:84:B4:D4:8D:15:A8:47:77:14:21`。
-上传前 workflow 用 `apksigner` 验证唯一 signer，用 `aapt2` 验证 application ID，并确认 APK 只含
-`arm64-v8a/libmedia_backup_mobile.so`。缺 Secret、错误 alias/密码/指纹、Debug APK 或其他 ABI 均失败关闭。
-该全新身份不更新任何旧应用；旧签名、旧 package ID、旧 Secret 名和 fallback 均不进入当前仓库。
+Linux CI 还应执行 `./scripts/test-mobile-ffi-jni.sh`；具备模拟器时运行
+`./scripts/test-android-emulator.sh`，覆盖 JNI 入队、分块、完成、重开、授权码轮换和私有目录边界。
 
-iOS：
+Android 需要网络、通知、照片/视频读取以及数据同步前台服务权限。Android 13+ 分别请求图片和视频权限，
+Android 14+ 支持系统“仅选中的照片和视频”；未获完整权限时只能处理实际授权的媒体。自动备份由
+WorkManager 调度，系统省电、后台限制或撤销权限都可能推迟任务，不能仅凭 UI 已启用判断备份完成。
+
+正式 APK 只包含 `arm64-v8a`，签名材料只进入受保护的 GitHub Environment。普通 CI 的 Debug APK
+不得作为正式更新发布；签名证书、application ID 和唯一 signer 必须由 Release workflow 校验。
+
+## 4. iOS 构建与验收
+
+iOS 当前最低部署目标为 27.0，使用 Xcode 27 / iOS 27 SDK：
 
 ```bash
+./scripts/verify-ios-toolchain.sh
 rustup target add aarch64-apple-ios aarch64-apple-ios-sim
 ./scripts/build-ios-rust.sh
-cd clients/ios && xcodegen generate
-xcodebuild -project MediaBackup.xcodeproj -scheme MediaBackup -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO build
+cd clients/ios
+xcodegen generate
+xcodebuild -project MediaBackup.xcodeproj -scheme MediaBackup \
+  -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO test
 ```
 
-## 9. 故障定位顺序
+`./scripts/test-ios-system-directory.sh` 验证系统目录与 Rust 状态边界，
+`python3 scripts/test-package-ios-ipa.py` 验证 IPA 打包器。发布产物
+`media-backup-ios-0.4.7-unsigned.ipa` 未签名；安装前必须用自己的 Apple 身份签名，打包本身不会授予
+设备安装权限。
 
-1. 检查固定发行树、manifest 和进程命令是否正确。
-2. 检查 `/readyz`、Journal 和磁盘/inode 容量。
-3. 检查代理真实 peer、TLS、`TRUSTED_PROXY_CIDRS` 和客户端时间。
-4. 运行 `doctor`，区分数据库合同、文件系统、Hash 或上传恢复错误。
-5. 移动端检查系统权限、后台任务限制、本地队列和安全凭据存储。
-6. 若是版本/Schema 问题，停止服务并转交 `sarmg-upgrade`，不要加入兼容代码。
+iOS 依赖 PhotoKit 的完整或有限照片权限，并用 BGProcessingTask/后台 URLSession 尝试继续传输。
+系统决定后台执行时机；用户关闭后台刷新、低电量或权限变化时，应在前台重新打开应用检查队列。
+授权码和 Bearer Token 保存在 Keychain，本地传输状态位于应用私有目录。
 
-移动 Client 的当前已知边界：`retry_wait` 到期会重新准备源文件，不会复用仍持久化的 `prepared_json`；
-若扫描器已按 `remove_source_after_prepare` 删除导出临时源，上传失败后可能持续报源不存在。准备失败或
-`preparing` 崩溃也可能留下 partial part。采集 job ID、数据库行和对应目录证据后再处置；不得删除整个
-`backup-staging-v0.3-r1/prepared/`，也不得把数据库中未经校验的 ID 直接拼为递归删除目标。
+## 5. 本地数据分类与清理边界
 
-## 10. 安全事件
+| 数据 | 所有者与允许操作 | 删除影响 |
+| --- | --- | --- |
+| 系统照片库原始照片/视频 | 由系统照片库和用户管理；Client 只读选择结果 | Client 清理、卸载和重配均不得删除原件 |
+| 宿主导出的临时源文件 | 平台层为一次准备过程导出；仅在确认没有 job 引用后清理 | 仍被引用时删除会使重试无法重新准备 |
+| `prepared/` 上传分块 | Rust 队列按 job/part 管理；由成功确认或明确取消流程回收 | 手工删除会破坏待传任务及恢复证据 |
+| 队列 SQLite | Rust 核心唯一拥有任务、分片、回执和绑定状态 | 删除会丢失进度、去重与完成记录，不能称为“清缓存” |
+| 设备凭据 | Android 私有配置或 iOS Keychain | 删除后必须用当前实例授权码重新配对 |
+| 图库预览缓存 | 可由应用重建，与上传回执独立 | 可清理，但不能据此改变队列状态 |
 
-不要在公开 issue 中附带生产数据库、媒体、密码、Token 或日志中的私人路径。先隔离入口、保全只读
-证据和摘要，再轮换管理员密码、设备 Token、API Key、指标 Token、TLS 私钥及可能泄露的主机凭据。
-安全修复只面向当前版本。
+任何清理前先记录 job ID、队列状态和对应路径，仅使用产品提供的单任务取消/回收入口。没有可证明的引用
+关系时保留数据；“清缓存重试”不是身份、队列或 prepared parts 的恢复方法。
 
-## 11. 管理 Web 与 Foundation 门禁
+## 6. 配对、队列与故障定位
 
-管理 Web 必须使用 `.node-version` 指定的 Node `26.7.0`。Foundation 是构建期依赖；生产机不安装 npm
-包，不访问 Foundation 仓库、registry 或 CDN。`build` 自带 `check:foundation` 前置门禁，因此正式顺序为：
+1. 确认 Server 根地址是无路径后缀的可信 HTTPS origin，并检查设备时间与证书链。
+2. 在 Server 管理台确认实例仍存在且授权码未被轮换；轮换后在 Client 输入新码重新配对。
+3. 检查 Android/iOS 的实际照片权限、可用空间、网络与后台执行限制。
+4. 查看队列状态，区分 `discovered`、`ready`、`uploading`、`retry_wait`、`failed` 和 `complete`。
+5. 暂时性网络错误按有界退避重试；永久协议、身份或本地文件错误需要保留 job ID 与日志后定位，不能
+   通过清空全部应用状态规避。
+6. Server 返回的不同 account/device identity 会失败关闭；先核对实例与授权码，不要修改本地 SQLite。
 
-```bash
-npm ci --prefix clients/web
-npm run build --prefix clients/web
-MEDIA_BACKUP_SOURCE_REVISION="$(git rev-parse HEAD)" \
-  cargo build --release --locked -p media-backup-server \
-  --target x86_64-unknown-linux-gnu
-```
+当前已知边界：`retry_wait` 到期可能重新准备源文件。若宿主在准备后删除了导出临时源，后续重试会报告
+源不存在；先保留 job ID、数据库行和对应 prepared 目录证据，再按单任务处理。
 
-门禁直接调用 Foundation `assertSarmgWebToolchain`，验证精确工具链及依赖/lockfile，并拒绝产品自有
-登录外壳、存储凭据及私有字体/token 定义。管理页面使用共享 Shell/UI、认证客户端和 Maple 字体。
-Vite 生成 HTML、JS、CSS、正体/斜体 WOFF2 与 OFL 许可证六个资产；服务端的唯一内嵌资产清单同时用于
-HTTP 响应和发行身份校验，发行包 `share/web/` 必须包含相同字节。字体经同源 `/admin/assets/` 路由
-提供，类型为 `font/woff2`，不访问 CDN。必须先构建 Web，再构建 Server。
+## 7. 发布检查
 
-备份用户是媒体归属租户，管理接口为 `/api/v2/admin/users`，不等同于平台管理员。
-平台管理员面板使用 Foundation `/api/v2/platform/administrators`。实例创建、授权码更换、取消配对、撤销和终态删除
-都是独立操作；写请求失败不会自动重放，界面仅显示安全错误和 Request ID。
+标签必须精确为 `v0.4.7` 并指向待发布提交。Release workflow 分别构建 Android 正式 APK、iOS 未签名
+IPA、校验和与身份清单。发布前要求普通 CI、Android 模拟器/JNI 门禁、iOS 测试和供应链策略全部通过。
+Client Release 不包含 Server 二进制、Web 资产、服务端配置或部署脚本。
 
-`npm run test:browser --prefix clients/web` 对实际 dist 运行 Chromium/Firefox 验收，覆盖账户操作、
-失败重试、两个管理员域的隔离、字体资产、键盘焦点及移动明暗主题 WCAG AA。首次运行先在
-`clients/web` 执行 `npx playwright install --with-deps chromium firefox`。
-
-当前 Server Rust 固定 Foundation `=0.7.0` / `77e7ad7af8e1bf62432bd6bdd8fa9aff54cb39d1`；八个 Web 包使用
-同版正式 Release tarball 与 lockfile integrity，不依赖相邻工作区。独立 CI 已通过，含 Server archive、
-Android 编译及未签名 iOS 验证，见[消费者证据](https://github.com/isarmg/sarmg-foundation-server/blob/main/consumers/axum-0.7.0-evidence.md)。
-这不代表这些主分支改动已重新发布为移动端或 Server 制品，也不代替原生签名和目标运行验收。
-后续更新仍须复验锁图和发行身份；不得在线编辑 `share/web`、复制旧 dist、vendoring 共享 CSS 或加入兼容 fallback。
+安全事件中不要公开授权码、设备 Token、相册内容、数据库或私人路径。先停止自动任务、保全只读证据，
+再由 Server 管理员轮换该实例授权码并在客户端重新配对。
