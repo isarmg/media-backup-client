@@ -3,22 +3,16 @@ name: Release
 on:
   push:
     tags:
-      - "v0.4.7"
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: Existing immutable version tag to publish (must be v0.4.7)
-        required: true
-        type: string
+      - "v*"
 
 env:
-  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  RELEASE_TAG: ${{ github.ref_name }}
   MEDIA_BACKUP_ANDROID_APPLICATION_ID: org.sarmg.mediabackup
   MEDIA_BACKUP_ANDROID_SIGNING_KEY_ALIAS: media-backup-android-release
   MEDIA_BACKUP_ANDROID_SIGNING_CERT_SHA256: 0cfc2811d48cdeab3e6d857029d879e001ab9531c06784b4d48d15a847771421
 
 concurrency:
-  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  group: release-${{ github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -48,8 +42,6 @@ jobs:
       - run: cargo test --workspace --locked
 
   android:
-    # 0.4.6 fixes only iOS system path handling; use the existing signed 0.4.4 APK.
-    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name) != 'v0.4.6' }}
     name: Android APK
     needs: validate
     environment: android-signing
@@ -178,7 +170,6 @@ jobs:
   publish:
     name: Publish GitHub Release
     needs: [android, ios]
-    if: ${{ always() && needs.ios.result == 'success' && (needs.android.result == 'success' || needs.android.result == 'skipped') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -200,8 +191,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          version="${RELEASE_TAG#v}"
+          notes="docs/releases/${version}.md"
+          test -f "$notes"
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             echo "Refusing to reuse or overwrite existing release $RELEASE_TAG" >&2
             exit 1
           fi
-          gh release create "$RELEASE_TAG" dist/* --verify-tag --notes-file docs/releases/0.4.7.md --title "$RELEASE_TAG"
+          gh release create "$RELEASE_TAG" dist/* --verify-tag --notes-file "$notes" --title "$RELEASE_TAG"
