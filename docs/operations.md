@@ -49,7 +49,7 @@ sudo /opt/isarmg/media-backup/releases/0.3.0/scripts/start-server-wsl.sh
 
 安装只允许创建缺失的 `/opt/isarmg/media-backup/releases/0.3.0`，不会覆盖或复用。同版本重装应先按
 运维变更流程处理现有部署，而不是绕过 no-clobber。环境文件首次以 `0600` 排他创建；替换自动生成的
-`BOOTSTRAP_ADMIN_USERNAME`、`BOOTSTRAP_ADMIN_PASSWORD`、`METRICS_TOKEN` 并删除初始化标记后才能启动。登录候选 username
+`BOOTSTRAP_ADMIN_USERNAME`、`BOOTSTRAP_ADMIN_PASSWORD`、`MEDIA_BACKUP_CREDENTIALS_KEY`、`METRICS_TOKEN` 并删除初始化标记后才能启动。登录候选 username
 必须是 1–64 bytes 的可打印 ASCII；Foundation 会去除首尾 ASCII whitespace、转为 ASCII 小写，再要求
 canonical 值为 3–64 bytes、首尾字母数字且全部字符仅为 `[a-z0-9._-]`，因此 `@`、Unicode、内部空白、
 首尾分隔符都被拒绝。持久化和 Session 只接受已经 canonical 的值；`ADMIN_EMAIL` 不是配置别名。
@@ -63,6 +63,7 @@ canonical 值为 3–64 bytes、首尾字母数字且全部字符仅为 `[a-z0-9
 | `BIND` | HTTP 监听地址 | 推荐 `127.0.0.1:8080` |
 | `BOOTSTRAP_ADMIN_USERNAME` | 无管理员时创建的初始管理员 username | 默认 admin；按 Foundation 规则规范化；已有管理员时不创建或覆盖身份 |
 | `BOOTSTRAP_ADMIN_PASSWORD` | 初始管理员密码 | 仅无管理员时必填；已有管理员时不重置密码；生产由秘密管理器生成 |
+| `MEDIA_BACKUP_CREDENTIALS_KEY` | 实例授权码信封加密主密钥 | 必填；Base64 解码后必须恰好 32 bytes，持久保存在秘密管理器中 |
 | `REQUIRE_HTTPS` | 强制可信 HTTPS 语义 | 必须为 `true` |
 | `DEVELOPMENT` | 本机开发开关 | 生产必须为 `false` |
 | `TRUSTED_PROXY_CIDRS` | 直接可信代理地址 | 仅列真实直连代理 |
@@ -70,16 +71,15 @@ canonical 值为 3–64 bytes、首尾字母数字且全部字符仅为 `[a-z0-9
 
 浏览器认证合同只有三条：`POST /api/v2/auth/login`、`GET /api/v2/auth/session`、
 `POST /api/v2/auth/logout`。登录 body 精确为 `{username,password}`；登录和 session 成功体精确为
-`{authenticated:true,user_id,username,role:"admin",csrf_token}`。普通备份账户仍使用
-`accounts.username`，它与 `_sarmg_administrators.username` 是不同身份域；同名不会共享密码、Session、数据归属或
-权限。用户管理等业务位于 `/api/v2/admin/*`，移动端仍只使用 `/v2/*`。管理员 username 规范化、严格
+`{authenticated:true,user_id,username,role:"admin",csrf_token}`。`accounts` 只是备份数据租户；管理员为租户下的每个
+客户端实例创建独立授权码，移动端用该码完成一次配对并取得设备 Token。授权码更换会立即使旧 Token 失效，客户端必须重新配对。
+用户管理等业务位于 `/api/v2/admin/*`，移动端仍只使用 `/v2/*`。管理员 username 规范化、严格
 当前 Argon2id、登录准入、Session/CSRF 生命周期、Cookie 和安全审计均由 Foundation 的
 Admin Core、SQLite Store、Axum Adapter 拥有。空闲 30 分钟、绝对 12 小时、每管理员 32 个/全局 1024 个
 Session 是固定平台策略，不提供产品级 TTL 配置。管理员登录来源使用真实 socket peer，不信任转发来源头。
 
-此合同调整的范围只有 Server 和编译进 Server 的 React/Vite 管理 Web。Android/iOS、Client 数据库、
-`/v2/auth/bootstrap`、备份账户 username、设备 Token 与 API Key 均保持当前移动合同，运维不得把
-`BOOTSTRAP_ADMIN_USERNAME` 写入移动客户端配置，也不得把普通账户提升或复制到 `_sarmg_administrators`。
+当前移动合同的 `/v2/auth/bootstrap` 只接受 `authorization_code`、`device_name` 和 `platform`；不存在备份账户密码
+登录或旧请求回退。运维不得把 `BOOTSTRAP_ADMIN_USERNAME` 或管理员密码写入移动客户端配置。
 
 最小 Caddy 配置：
 
@@ -126,8 +126,8 @@ blob rooted unlink/删行及 orphan commit staging 清理。永久删除响应 2
 ## 6. 当前数据库合同
 
 服务端 `product_metadata` 必须精确为 `application=media-backup`、`application_version=0.3.0`、
-`schema_revision=2`，Schema SHA-256 为
-`6415edde88228d508f1c0c7582f119c8fe869d2d78fd85129f359a5d748cbbc2`。移动队列对应
+`schema_revision=3`，Schema SHA-256 为
+`d65bf1183bc5bf3546738226c49711dbdbd520c5120a18df075273d5904bf51e`。移动队列对应
 `media-backup-client` 与 SHA-256
 `fb38736bbf8ac69eb694095e62302f73233e39df42cd2d38e3dd1284e2f02558`。
 
@@ -209,9 +209,9 @@ Vite 生成 HTML、JS、CSS、正体/斜体 WOFF2 与 OFL 许可证六个资产�
 HTTP 响应和发行身份校验，发行包 `share/web/` 必须包含相同字节。字体经同源 `/admin/assets/` 路由
 提供，类型为 `font/woff2`，不访问 CDN。必须先构建 Web，再构建 Server。
 
-备份用户是设备上传业务账户，管理接口为 `/api/v2/admin/users`，不等同于平台管理员。
-平台管理员面板使用 Foundation `/api/v2/platform/administrators`。备份账户资料保存和密码重设是
-两个独立操作，停用需显式确认；写请求失败不会自动重放，密码会清空，界面仅显示安全错误和 Request ID。
+备份用户是媒体归属租户，管理接口为 `/api/v2/admin/users`，不等同于平台管理员。
+平台管理员面板使用 Foundation `/api/v2/platform/administrators`。实例创建、授权码更换、取消配对、撤销和终态删除
+都是独立操作；写请求失败不会自动重放，界面仅显示安全错误和 Request ID。
 
 `npm run test:browser --prefix clients/web` 对实际 dist 运行 Chromium/Firefox 验收，覆盖账户操作、
 失败重试、两个管理员域的隔离、字体资产、键盘焦点及移动明暗主题 WCAG AA。首次运行先在

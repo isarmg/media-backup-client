@@ -25,7 +25,7 @@ object BackupScheduler {
 
     fun syncAutomatic(context: Context, config: SecureConfig) {
         val manager = WorkManager.getInstance(context)
-        if (!config.autoBackup || config.serverUrl.isBlank() || config.username.isBlank() || config.password.isBlank()) {
+        if (!config.autoBackup || config.serverUrl.isBlank() || config.authorizationCode.isBlank()) {
             manager.cancelUniqueWork(PERIODIC_WORK)
             return
         }

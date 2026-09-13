@@ -5,11 +5,11 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.security.MessageDigest
 
-internal fun profileKey(server: String, username: String): String = MessageDigest.getInstance("SHA-256")
-    .digest("${server.trim().trimEnd('/')}\n${username.trim()}".toByteArray()).joinToString("") { "%02x".format(it) }
+internal fun provisionalProfileKey(server: String, authorizationCode: String): String = MessageDigest.getInstance("SHA-256")
+    .digest("media-backup-unpaired-v1\n${server.trim().trimEnd('/')}\n${authorizationCode.trim()}".toByteArray()).joinToString("") { "%02x".format(it) }
 
-internal fun accountProfileKey(server: String, accountId: String): String = MessageDigest.getInstance("SHA-256")
-    .digest("media-backup-account-v1\n${server.trim().trimEnd('/')}\n${java.util.UUID.fromString(accountId)}".toByteArray())
+internal fun instanceProfileKey(server: String, deviceId: String): String = MessageDigest.getInstance("SHA-256")
+    .digest("media-backup-instance-v1\n${server.trim().trimEnd('/')}\n${java.util.UUID.fromString(deviceId)}".toByteArray())
     .joinToString("") { "%02x".format(it) }
 
 /** One native handle per account in this process; reopening must not reset a live upload. */
@@ -26,14 +26,17 @@ internal object TransferStore {
         Session(handle, paths, profile)
     }
 
-    /** Reuse matching queues; a recreated account gets a separate queue without deleting the old one. */
-    fun bindAccount(context: Context, server: String, username: String, accountId: String, deviceId: String): Session {
-        val legacy = open(context, profileKey(server, username))
-        val binding = try { command(legacy.handle, "binding") as? JSONObject }
+    /** A rotated authorization code reopens the same server instance queue; identity drift fails closed. */
+    fun bindAccount(context: Context, server: String, authorizationCode: String, accountId: String, deviceId: String): Session {
+        require(authorizationCode.isNotBlank())
+        val target = open(context, instanceProfileKey(server, deviceId))
+        val binding = try { command(target.handle, "binding") as? JSONObject }
         catch (error: Exception) { throw IllegalStateException("读取本地账户绑定失败：${error.message}", error) }
-        val matches = binding == null || (binding.getString("server") == server &&
-            java.util.UUID.fromString(binding.getString("account_id")) == java.util.UUID.fromString(accountId))
-        val target = if (matches) legacy else open(context, accountProfileKey(server, accountId))
+        check(binding == null || (binding.getString("server") == server &&
+            java.util.UUID.fromString(binding.getString("account_id")) == java.util.UUID.fromString(accountId) &&
+            java.util.UUID.fromString(binding.getString("device_id")) == java.util.UUID.fromString(deviceId))) {
+            "服务器实例身份已改变；旧备份队列已保留"
+        }
         try { command(target.handle, "bind", JSONObject().put("server", server)
             .put("account_id", accountId).put("device_id", deviceId)) }
         catch (error: Exception) { throw IllegalStateException("服务器认证成功，但本地绑定失败：${error.message}", error) }

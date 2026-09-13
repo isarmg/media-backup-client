@@ -30,7 +30,7 @@ struct ContentView: View {
             }.tabItem { Label("本地", systemImage: "photo.on.rectangle") }.tag(0)
             NavigationStack {
                 Group {
-                    if coordinator.serverURL.isEmpty || coordinator.username.isEmpty {
+                    if coordinator.serverURL.isEmpty || coordinator.authorizationCode.isEmpty {
                         VStack {
                             GalleryEmptyState(title: "登录后查看云端照片", message: "随时浏览、收藏和下载已备份的媒体。", icon: "cloud")
                             Button("登录账户") { account = true }.buttonStyle(.borderedProminent)
@@ -67,7 +67,7 @@ struct ContentView: View {
     }
     @ToolbarContentBuilder private var accountToolbar: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
-            Button(coordinator.username.isEmpty ? "登录" : "账户") { account = true }
+            Button(coordinator.authorizationCode.isEmpty ? "配对" : "实例") { account = true }
                 .accessibilityIdentifier("account.open")
         }
     }
@@ -91,7 +91,7 @@ struct ContentView: View {
                 let results = selection; mediaSheet = nil; tab = 2
                 Task { await coordinator.runBackup(selection: results) }
             }
-            .disabled(selection.isEmpty || coordinator.running || coordinator.serverURL.isEmpty || coordinator.username.isEmpty)
+            .disabled(selection.isEmpty || coordinator.running || coordinator.serverURL.isEmpty || coordinator.authorizationCode.isEmpty)
             .buttonStyle(.borderedProminent)
         }.padding()
     }
@@ -101,7 +101,7 @@ struct ContentView: View {
                 Label(coordinator.status, systemImage: coordinator.running ? "arrow.triangle.2.circlepath" : "tray")
                     .font(.subheadline)
                 Button("继续待处理任务") { Task { await coordinator.runBackup() } }
-                    .disabled(coordinator.running || coordinator.username.isEmpty)
+                    .disabled(coordinator.running || coordinator.authorizationCode.isEmpty)
             }
             Section("上传 · \(coordinator.batches.count) 个批次") {
                 if coordinator.batches.isEmpty { Text("还没有上传任务，在本地图库选择照片开始备份。").foregroundStyle(.secondary) }
@@ -164,7 +164,7 @@ struct ContentView: View {
     private var settings: some View {
         Form {
             Section("账户") {
-                Label(coordinator.username.isEmpty ? "尚未登录" : coordinator.username, systemImage: "person.crop.circle.fill")
+                Label(coordinator.authorizationCode.isEmpty ? "尚未配对" : "备份实例已配对", systemImage: "person.crop.circle.fill")
                     .font(.headline)
                 if !coordinator.serverURL.isEmpty { Text(coordinator.serverURL).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
                 Button("登录 / 切换账户") { account = true }.accessibilityIdentifier("settings.login")

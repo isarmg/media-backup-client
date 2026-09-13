@@ -84,18 +84,14 @@ internal fun CloudGalleryScreen(context: Context, config: SecureConfig, profile:
         val requestedFilters = filters
         val credentials = config.connection()
         val server = credentials.server
-        val user = credentials.username
-        val password = credentials.password
+        val authorizationCode = credentials.authorizationCode
         val token = credentials.token
         loading = true
         scope.launch {
             try {
                 val result = withContext(Dispatchers.IO) {
+                    check(token.isNotBlank()) { "客户端需要使用当前实例授权码重新配对" }
                     val connection = BackupApi(server, token)
-                    if (token.isBlank()) {
-                        val bearer = connection.bootstrap(user, password, Build.MODEL)
-                        if (config.profile == profile) config.acceptBootstrap(connection, bearer, profile)
-                    }
                     check(config.profile == profile) { "账户已切换" }
                     val bound = config.connection()
                     TransferStore.command(TransferStore.open(context, profile).handle, "bind", org.json.JSONObject()

@@ -41,10 +41,9 @@ class BackupApi(
         }
     }
 
-    fun bootstrap(username: String, password: String, deviceName: String): String {
+    fun bootstrap(authorizationCode: String, deviceName: String): String {
         val body = JSONObject()
-            .put("username", username)
-            .put("password", password)
+            .put("authorization_code", authorizationCode)
             .put("device_name", deviceName)
             .put("platform", "android")
             .toString()
@@ -53,8 +52,8 @@ class BackupApi(
         val response = client.newCall(request).execute()
         response.use {
             val text = it.body.string()
-            if (it.code == 401 || it.code == 403) error("账户或密码不正确，或账户没有访问权限")
-            if (!it.isSuccessful) error("登录失败（HTTP ${it.code}），请稍后重试")
+            if (it.code == 401 || it.code == 403) error("授权码无效、已取消或已被配对")
+            if (!it.isSuccessful) error("配对失败（HTTP ${it.code}），请稍后重试")
             val result = JSONObject(text)
             accountId = result.getString("account_id"); deviceId = result.getString("device_id")
             bearerToken = result.getString("bearer_token")

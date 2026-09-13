@@ -11,11 +11,8 @@ final class BackupCoordinator: ObservableObject {
     @Published var serverURL = MobileContractV02.preferences.string(forKey: "server_url") ?? "" {
         didSet { if oldValue != serverURL { credentialsChanged() } }
     }
-    @Published var username = KeychainStore.load("username") ?? "" {
-        didSet { if oldValue != username { credentialsChanged() } }
-    }
-    @Published var password = KeychainStore.load("password") ?? "" {
-        didSet { if oldValue != password { credentialsChanged() } }
+    @Published var authorizationCode = KeychainStore.load("authorization_code") ?? "" {
+        didSet { if oldValue != authorizationCode { credentialsChanged() } }
     }
     @Published var status = "请配置备份账户，或选择要备份的媒体"
     @Published var running = false
@@ -44,9 +41,9 @@ final class BackupCoordinator: ObservableObject {
     private var credentialGeneration = 0
     var profile: String {
         if MobileContractV02.preferences.string(forKey: "server_url") == serverURL,
-           KeychainStore.load("username") == username,
+           KeychainStore.load("authorization_code") == authorizationCode,
            let saved = MobileContractV02.preferences.string(forKey: "queue_profile_v04") { return saved }
-        return profileKey(server: serverURL, username: username)
+        return provisionalProfileKey(server: serverURL, authorizationCode: authorizationCode)
     }
 
     private func credentialsChanged() {
@@ -66,17 +63,17 @@ final class BackupCoordinator: ObservableObject {
         do {
             guard let url = URL(string: serverURL), url.scheme == "https", url.host != nil,
                 url.user == nil, url.password == nil, url.path.isEmpty || url.path == "/",
-                url.query == nil, url.fragment == nil, !username.isEmpty, !password.isEmpty else {
-                throw CoordinatorFailure.message("请输入 HTTPS 根地址、备份账户和密码")
+                url.query == nil, url.fragment == nil, !authorizationCode.isEmpty else {
+                throw CoordinatorFailure.message("请输入 HTTPS 根地址和实例授权码")
             }
             let changed = MobileContractV02.preferences.string(forKey: "server_url") != serverURL
-                || KeychainStore.load("username") != username || KeychainStore.load("password") != password
-            if MobileContractV02.preferences.string(forKey: "server_url") != serverURL || KeychainStore.load("username") != username {
+                || KeychainStore.load("authorization_code") != authorizationCode
+            if changed {
                 MobileContractV02.preferences.removeObject(forKey: "queue_profile_v04")
             }
             if changed { KeychainStore.delete(MobileContractV02.tokenKey) }
             MobileContractV02.preferences.set(serverURL, forKey: "server_url")
-            try KeychainStore.save(username, for: "username"); try KeychainStore.save(password, for: "password")
+            try KeychainStore.save(authorizationCode, for: "authorization_code")
             MobileContractV02.preferences.set(autoBackup, forKey: "auto_backup")
             MobileContractV02.preferences.set(wifiOnly, forKey: "wifi_only")
             MobileContractV02.preferences.set(chargingOnly, forKey: "charging_only")
@@ -84,14 +81,14 @@ final class BackupCoordinator: ObservableObject {
             if autoBackup { scheduleBackgroundRun() }
         } catch { status = error.localizedDescription }
     }
-    func login(server: String, username user: String, password secret: String) async throws {
-        let credentials = try AccountLogin(server: server, username: user, password: secret)
+    func login(server: String, authorizationCode: String) async throws {
+        let credentials = try AccountLogin(server: server, authorizationCode: authorizationCode)
         let generation = credentialGeneration
         let response = try await credentials.authenticate()
         try Task.checkCancellation()
         guard generation == credentialGeneration else { throw CancellationError() }
         let address = credentials.server.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        let target = try TransferStore.bindAccount(server: address, username: credentials.username,
+        let target = try TransferStore.bindAccount(server: address, authorizationCode: credentials.authorizationCode,
             accountId: response.accountId, deviceId: response.deviceId) { key in
                 if let existing = self.stores[key] { return existing }
                 let value = try TransferStore(profile: key)
@@ -103,17 +100,16 @@ final class BackupCoordinator: ObservableObject {
         // No stored account or active transfer is changed until authentication and binding succeed.
         credentialsChanged()
         KeychainStore.delete(MobileContractV02.tokenKey)
-        try KeychainStore.save(credentials.username, for: "username")
-        try KeychainStore.save(credentials.password, for: "password")
+        try KeychainStore.save(credentials.authorizationCode, for: "authorization_code")
         try KeychainStore.save(response.accountId.uuidString, for: "account_id_v04")
         try KeychainStore.save(response.deviceId.uuidString, for: "device_id_v04")
         try KeychainStore.save(response.bearerToken, for: MobileContractV02.tokenKey)
         MobileContractV02.preferences.set(newProfile, forKey: "queue_profile_v04")
         MobileContractV02.preferences.set(address, forKey: "server_url")
-        serverURL = address; username = credentials.username; password = credentials.password
+        serverURL = address; self.authorizationCode = credentials.authorizationCode
         stores[newProfile] = targetStore
         library = RemoteLibrary(serverURL: credentials.server, token: response.bearerToken)
-        status = "已登录：\(username)"
+        status = "备份实例已配对"
         if autoBackup { scheduleBackgroundRun() }
     }
     func refreshAlbums() async {
@@ -340,25 +336,14 @@ final class BackupCoordinator: ObservableObject {
     func remoteLibrary() async throws -> RemoteLibrary {
         guard let base = URL(string: serverURL), base.scheme == "https", base.host != nil,
             base.user == nil, base.password == nil, base.path.isEmpty || base.path == "/", base.query == nil,
-            base.fragment == nil, !username.isEmpty, !password.isEmpty else { throw CoordinatorFailure.message("请先保存有效的 HTTPS 服务器和备份账户") }
-        let generation = credentialGeneration
-        let user = username, secret = password
+            base.fragment == nil, !authorizationCode.isEmpty else { throw CoordinatorFailure.message("请先保存有效的 HTTPS 服务器和实例授权码") }
         saveSettings()
-        var bearer = KeychainStore.load(MobileContractV02.tokenKey)
-        if bearer == nil {
-            let credentials = try await BackgroundUploader.bootstrap(serverURL: base, username: user, password: secret)
-            guard generation == credentialGeneration else { throw CancellationError() }
-            if let previous = KeychainStore.load("account_id_v04"), let oldId = UUID(uuidString: previous), oldId != credentials.accountId {
-                throw CoordinatorFailure.message("服务器账户已重建，请重新登录；旧备份队列已保留")
-            }
-            bearer = credentials.bearerToken
-            try KeychainStore.save(credentials.accountId.uuidString, for: "account_id_v04")
-            try KeychainStore.save(credentials.deviceId.uuidString, for: "device_id_v04")
-            try KeychainStore.save(bearer!, for: MobileContractV02.tokenKey)
+        guard let bearer = KeychainStore.load(MobileContractV02.tokenKey), !bearer.isEmpty else {
+            throw CoordinatorFailure.message("客户端需要使用当前实例授权码重新配对")
         }
         try store().client.transfer(["op": "bind", "server": serverURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")),
             "account_id": KeychainStore.load("account_id_v04") ?? "", "device_id": KeychainStore.load("device_id_v04") ?? ""])
-        return RemoteLibrary(serverURL: base, token: bearer!)
+        return RemoteLibrary(serverURL: base, token: bearer)
     }
 }
 

@@ -145,24 +145,23 @@ final class BackgroundUploader: NSObject, URLSessionTaskDelegate {
         }
     }
 
-    static func bootstrap(serverURL: URL, username: String, password: String) async throws -> BootstrapResponse {
+    static func bootstrap(serverURL: URL, authorizationCode: String) async throws -> BootstrapResponse {
         let deviceName = await MainActor.run { UIDevice.current.name }
         var request = URLRequest(url: serverURL.appending(path: "/v2/auth/bootstrap"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: [
-            "username": username,
-            "password": password,
+            "authorization_code": authorizationCode,
             "device_name": deviceName,
             "platform": "ios",
         ])
         let (data, response) = try await SecureSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw UploadFailure.invalidResponse }
         if http.statusCode == 401 || http.statusCode == 403 {
-            throw CoordinatorFailure.message("账户或密码不正确，或账户没有访问权限")
+            throw CoordinatorFailure.message("实例授权码无效、已更换或实例不可配对")
         }
         guard (200..<300).contains(http.statusCode) else {
-            throw CoordinatorFailure.message("登录失败（HTTP \(http.statusCode)），请稍后重试")
+            throw CoordinatorFailure.message("配对失败（HTTP \(http.statusCode)），请稍后重试")
         }
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase

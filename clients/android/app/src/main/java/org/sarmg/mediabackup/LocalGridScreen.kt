@@ -157,8 +157,8 @@ internal fun LocalGalleryScreen(context: Context, config: SecureConfig, profile:
                     TextButton(onClick = { selection = emptyMap() }) { Text("清空选择") }
                 }
                 if (notice.isNotEmpty()) Text(notice, style = MaterialTheme.typography.bodySmall)
-                Button(modifier = Modifier.fillMaxWidth(), enabled = !busy && (selection.isNotEmpty() || config.username.isBlank()), onClick = {
-                    if (config.serverUrl.isBlank() || config.username.isBlank()) onLogin()
+                Button(modifier = Modifier.fillMaxWidth(), enabled = !busy && (selection.isNotEmpty() || config.authorizationCode.isBlank()), onClick = {
+                    if (config.serverUrl.isBlank() || config.authorizationCode.isBlank()) onLogin()
                     else scope.launch {
                         busy = true
                         try {
@@ -166,7 +166,7 @@ internal fun LocalGalleryScreen(context: Context, config: SecureConfig, profile:
                             BackupScheduler.enqueueNow(context, config); selection = emptyMap(); onSubmitted()
                         } catch (e: Exception) { notice = e.message ?: "提交失败" } finally { busy = false }
                     }
-                }) { Text(if (config.username.isBlank()) "登录后备份" else if (selection.isEmpty()) "勾选照片开始备份" else "备份所选 ${selection.size} 项") }
+                }) { Text(if (config.authorizationCode.isBlank()) "配对后备份" else if (selection.isEmpty()) "勾选照片开始备份" else "备份所选 ${selection.size} 项") }
             }
         }
     }

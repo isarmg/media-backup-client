@@ -19,7 +19,7 @@ limit、路由匹配、身份提取、CSRF/权限、DTO 反序列化，最后进
 配置入口只有 `BOOTSTRAP_ADMIN_USERNAME`；wire Session 的 `role` 由服务端固定输出 `admin`。operator/viewer、
 角色切换和 `ADMIN_EMAIL` 都不存在。浏览器登录、恢复会话、退出分别固定为
 `POST /api/v2/auth/login`、`GET /api/v2/auth/session`、`POST /api/v2/auth/logout`，管理 handler 固定在
-`/api/v2/admin/*`。移动端 `accounts.username` 与这套管理 username 完全隔离。
+`/api/v2/admin/*`。数据面 `accounts` 只是媒体租户；移动实例用独立授权码配对，与这套管理 username 完全隔离。
 
 ## 登录 admission
 
@@ -29,7 +29,7 @@ limit、路由匹配、身份提取、CSRF/权限、DTO 反序列化，最后进
 canonical username（3–64 bytes、首尾字母数字、字符 `[a-z0-9._-]`）、唯一当前 Argon2id 参数、随机
 Session/CSRF token、SHA-256 摘要/常量时间匹配和 raw
 Cookie 解析、登录准入、数据库 Store、Cookie 属性、TTL 和撤销全部来自 Foundation 当前 Admin 平台。
-产品只挂接管理员身份来保护备份用户业务；移动账户的登录准入仍属于产品。
+产品只挂接管理员身份来保护备份租户和实例管理；移动端只允许待配对实例的授权码 bootstrap。
 
 ## 上传路由
 

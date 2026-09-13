@@ -195,14 +195,14 @@ struct LocalGalleryScreen: View {
                 }
             }
             Button {
-                if coordinator.username.isEmpty || coordinator.serverURL.isEmpty { onLogin(); return }
+                if coordinator.authorizationCode.isEmpty || coordinator.serverURL.isEmpty { onLogin(); return }
                 let descriptors = selected.values.map(\.descriptor); selected = [:]; onSubmitted()
                 Task { await coordinator.enqueueLocal(descriptors) }
             } label: {
-                Label(coordinator.username.isEmpty ? "登录后备份" : selected.isEmpty ? "勾选照片开始备份" : "备份所选 \(selected.count) 项", systemImage: "icloud.and.arrow.up")
+                Label(coordinator.authorizationCode.isEmpty ? "配对后备份" : selected.isEmpty ? "勾选照片开始备份" : "备份所选 \(selected.count) 项", systemImage: "icloud.and.arrow.up")
                     .frame(maxWidth: .infinity).padding(.vertical, 6)
             }
-            .disabled(busy || coordinator.running || (selected.isEmpty && !coordinator.username.isEmpty))
+            .disabled(busy || coordinator.running || (selected.isEmpty && !coordinator.authorizationCode.isEmpty))
             .buttonStyle(.borderedProminent)
         }.padding(.horizontal, 16).padding(.vertical, 12).background(.regularMaterial)
     }

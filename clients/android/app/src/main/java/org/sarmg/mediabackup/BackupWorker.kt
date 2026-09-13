@@ -43,14 +43,11 @@ class BackupWorker(context: Context, parameters: WorkerParameters) : CoroutineWo
         var snapshot = BackupSnapshot(state = "running", message = "正在准备备份", lastRunAt = System.currentTimeMillis())
         try {
             val api = BackupApi(credentials.server, credentials.token)
-            var accountId = credentials.accountId
-            var deviceId = credentials.deviceId
-            if (credentials.token.isBlank()) {
-                val token = api.bootstrap(credentials.username, credentials.password, Build.MODEL)
-                if (config.profile != profile) return Result.failure()
-                config.acceptBootstrap(api, token, profile)
-                accountId = api.accountId; deviceId = api.deviceId
+            check(credentials.token.isNotBlank() && credentials.accountId.isNotBlank() && credentials.deviceId.isNotBlank()) {
+                "客户端需要使用当前实例授权码重新配对"
             }
+            val accountId = credentials.accountId
+            val deviceId = credentials.deviceId
             TransferStore.command(handle, "bind", JSONObject().put("server", credentials.server)
                 .put("account_id", accountId).put("device_id", deviceId))
             var resourceCount = 0

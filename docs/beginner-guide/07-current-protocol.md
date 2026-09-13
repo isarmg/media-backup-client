@@ -18,12 +18,12 @@
 `role: "admin"` 和 `csrf_token` 五个字段。`admin` 是控制面 wire 常量，不在数据库持久化；当前 Schema
 不存在 email、operator/viewer 或 role 列。登录 username 候选只允许 1–64 bytes 可打印 ASCII，经
 trim ASCII whitespace 与 ASCII lowercase 后必须是 3–64 bytes、首尾字母数字且字符仅 `[a-z0-9._-]`；
-`@` 明确非法。普通备份账户的 `accounts.username` 不属于管理角色系统。所有管理 mutation 位于
+`@` 明确非法。数据租户 `accounts` 不属于管理角色系统，也不提供密码登录。所有管理 mutation 位于
 `/api/v2/admin/*`，都要求同源、
 有效 Session 和与该 Session 绑定的 CSRF token。
 
-这套管理合同只由 Server 与内置 React/Vite Web 消费。移动 `/v2` DTO、设备 Token/API Key、Client
-Schema、Android/iOS 和 FFI 仍使用原有数据面身份；协议修改时不得机械地把它们替换成管理 username。
+移动 `/v2/auth/bootstrap` 精确接受实例 `authorization_code`、`device_name` 和 `platform`，成功后签发设备 Token；
+更换授权码清除旧 Token 并要求重新配对。不接受旧的 username/password body，也不提供兼容分支。
 
 失败响应不使用产品私有 `{error}`。服务端直接序列化 `sarmg-error=0.3.0` 的 Foundation ErrorEnvelope 顶层
 `{code,message,retryable}`；`code` 只用小写字母开头的安全 ASCII 标识，当前没有 request ID 时不输出

@@ -1,15 +1,15 @@
 import Foundation
 import CryptoKit
 
-func profileKey(server: String, username: String) -> String {
+func provisionalProfileKey(server: String, authorizationCode: String) -> String {
     let normalized = server.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-    return SHA256.hash(data: Data("\(normalized)\n\(username.trimmingCharacters(in: .whitespacesAndNewlines))".utf8))
+    return SHA256.hash(data: Data("media-backup-unpaired-v1\n\(normalized)\n\(authorizationCode.trimmingCharacters(in: .whitespacesAndNewlines))".utf8))
         .map { String(format: "%02x", $0) }.joined()
 }
 
-func accountProfileKey(server: String, accountId: UUID) -> String {
+func instanceProfileKey(server: String, deviceId: UUID) -> String {
     let normalized = server.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-    return SHA256.hash(data: Data("media-backup-account-v1\n\(normalized)\n\(accountId.uuidString.lowercased())".utf8))
+    return SHA256.hash(data: Data("media-backup-instance-v1\n\(normalized)\n\(deviceId.uuidString.lowercased())".utf8))
         .map { String(format: "%02x", $0) }.joined()
 }
 
@@ -22,17 +22,20 @@ struct TransferBatch: Identifiable {
 }
 
 final class TransferStore: @unchecked Sendable {
-    static func bindAccount(server: String, username: String, accountId: UUID, deviceId: UUID,
+    static func bindAccount(server: String, authorizationCode: String, accountId: UUID, deviceId: UUID,
                             open: (String) throws -> TransferStore = { try TransferStore(profile: $0) }) throws -> (profile: String, store: TransferStore) {
-        let legacyProfile = profileKey(server: server, username: username)
-        let legacy = try open(legacyProfile)
+        guard !authorizationCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw ClientFailure.message("实例授权码不能为空")
+        }
+        let profile = instanceProfileKey(server: server, deviceId: deviceId)
+        let target = try open(profile)
         let binding: [String: Any]?
-        do { binding = try legacy.client.transfer(["op": "binding"]) as? [String: Any] }
+        do { binding = try target.client.transfer(["op": "binding"]) as? [String: Any] }
         catch { throw ClientFailure.message("读取本地账户绑定失败：\(error.localizedDescription)") }
         let matches = binding == nil || ((binding?["server"] as? String) == server &&
-            (binding?["account_id"] as? String).flatMap(UUID.init(uuidString:)) == accountId)
-        let profile = matches ? legacyProfile : accountProfileKey(server: server, accountId: accountId)
-        let target = matches ? legacy : try open(profile)
+            (binding?["account_id"] as? String).flatMap(UUID.init(uuidString:)) == accountId &&
+            (binding?["device_id"] as? String).flatMap(UUID.init(uuidString:)) == deviceId)
+        guard matches else { throw ClientFailure.message("服务器实例身份已改变；旧备份队列已保留") }
         do {
             try target.client.transfer(["op": "bind", "server": server,
                 "account_id": accountId.uuidString, "device_id": deviceId.uuidString])

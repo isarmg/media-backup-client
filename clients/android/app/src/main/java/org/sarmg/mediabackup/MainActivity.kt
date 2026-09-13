@@ -54,7 +54,7 @@ private fun AppNavigation(context: Context) {
             key(profile, accountRevision) {
                 when (tab) {
                     0 -> LocalGalleryScreen(context, config, profile, onSubmitted = { tab = 2 }, onLogin = { account = true })
-                    1 -> if (config.serverUrl.isBlank() || config.username.isBlank()) {
+                    1 -> if (config.serverUrl.isBlank() || config.authorizationCode.isBlank()) {
                         Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center,
                             horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
                             Text("登录后查看云端照片", style = MaterialTheme.typography.titleLarge)
@@ -93,7 +93,7 @@ private fun SettingsScreen(context: Context, config: SecureConfig, onLogin: () -
         item {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(config.username.ifBlank { "尚未登录" }, style = MaterialTheme.typography.titleLarge)
+                    Text(if (config.authorizationCode.isBlank()) "尚未配对" else "备份实例已配对", style = MaterialTheme.typography.titleLarge)
                     if (config.serverUrl.isNotEmpty()) Text(config.serverUrl, style = MaterialTheme.typography.bodySmall)
                     Button(onClick = onLogin) { Text("登录 / 切换账户") }
                 }

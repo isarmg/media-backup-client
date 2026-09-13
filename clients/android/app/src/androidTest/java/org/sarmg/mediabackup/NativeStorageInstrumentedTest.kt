@@ -92,30 +92,25 @@ class NativeStorageInstrumentedTest {
         }
     }
 
-    @Test fun recreatedAccountUsesSeparateQueueAndPreservesExistingWork() {
+    @Test fun authorizationRotationReusesInstanceQueueAndIdentityDriftFailsClosed() {
         val isolated = object : ContextWrapper(context) { override fun getDataDir(): File = root }
         val server = "https://backup.example.com"
-        val username = "login-${UUID.randomUUID()}"
-        val oldAccount = UUID.randomUUID().toString()
-        val newAccount = UUID.randomUUID().toString()
+        val oldCode = "code-${UUID.randomUUID()}", newCode = "code-${UUID.randomUUID()}"
+        val account = UUID.randomUUID().toString(), device = UUID.randomUUID().toString()
         val handles = mutableSetOf<Long>()
-        fun login(account: String): TransferStore.Session = TransferStore.bindAccount(
-            isolated, server, username, account, UUID.randomUUID().toString()
+        fun pair(code: String, accountId: String = account): TransferStore.Session = TransferStore.bindAccount(
+            isolated, server, code, accountId, device
         ).also { handles += it.handle }
         try {
-            val original = login(oldAccount)
+            val original = pair(oldCode)
             val batch = UUID.randomUUID().toString()
             TransferStore.command(original.handle, "create_batch", JSONObject().put("id", batch)
                 .put("items", org.json.JSONArray().put(JSONObject().put("id", "selected").put("source", "local-photo"))))
-            assertEquals(original.profile, login(oldAccount).profile)
-            val recreated = login(newAccount)
-            assertNotEquals(original.profile, recreated.profile)
-            assertEquals(0, TransferStore.batches(recreated.handle).length())
-            assertEquals(recreated.profile, login(newAccount).profile)
+            val repaired = pair(newCode)
+            assertEquals(original.profile, repaired.profile)
             assertEquals(1, TransferStore.batches(original.handle).length())
-            assertEquals(oldAccount, (TransferStore.command(original.handle, "binding") as JSONObject).getString("account_id"))
-            assertEquals(original.profile, login(oldAccount).profile)
-            assertEquals(1, TransferStore.batches(original.handle).length())
+            assertEquals(account, (TransferStore.command(original.handle, "binding") as JSONObject).getString("account_id"))
+            assertThrows(IllegalStateException::class.java) { pair(newCode, UUID.randomUUID().toString()) }
         } finally { handles.forEach { NativeBridgeV2.close(it) } }
     }
 

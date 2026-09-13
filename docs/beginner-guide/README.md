@@ -101,12 +101,12 @@ curl --fail http://127.0.0.1:8080/healthz
 ## 7. 理解认证
 
 - 浏览器管理员使用 `__Host-sarmg-media-backup-session` Cookie 与 Session 绑定 CSRF。
-- 移动设备使用 bootstrap 后取得的 Bearer Token。
+- 移动设备使用每实例授权码配对，bootstrap 后取得 Bearer Token；服务端更换授权码会撤销旧 Token。
 - 自动化使用可撤销 API Key。
 - `/metrics` 使用独立 `METRICS_TOKEN`。
 
-这些凭据不能互换。密码使用 Argon2；服务端只保存设备 Token 和 API Key 的 SHA-256 摘要。登录路径
-同时受请求体大小、真实来源、账户、Argon2 并发和超时限制。
+这些凭据不能互换。Argon2 只用于管理员密码；实例授权码以可查看的信封密文和匹配摘要保存，设备 Token 与 API Key
+只保存 SHA-256 摘要。移动端不存在账户密码 bootstrap 或旧合同回退。
 
 ## 8. 如何安全修改
 

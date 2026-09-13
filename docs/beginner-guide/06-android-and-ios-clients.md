@@ -3,7 +3,7 @@
 ## 共同状态机
 
 ```text
-未配置 -> 保存当前 HTTPS/账号 -> 登录取得设备 Token
+未配置 -> 保存当前 HTTPS/实例授权码 -> 配对取得设备 Token
  -> 请求照片权限 -> 选择/排除相册 -> 扫描
  -> durable enqueue -> background upload -> sync cursor
  -> timeline browse -> authenticated download -> system restore
@@ -30,8 +30,8 @@ Worker 重启时从 durable state 继续，不能仅依赖 Compose 内存状态�
 
 ## Android Secret 与权限
 
-服务地址、用户可见设置与 Token 分级保存；Token 由 Keystore 支持的加密存储保护。日志、Intent、
-SavedState 和 crash report 不包含 Token。Android 正式 package/app ID 只使用当前命名空间，不查找旧
+服务地址、实例授权码、用户可见设置与 Token 分级保存；授权码和 Token 由 Keystore 支持的加密存储保护。日志、Intent、
+SavedState 和 crash report 不包含凭据。Android 正式 package/app ID 只使用当前命名空间，不查找旧
 preference、database 或 staging。
 
 正式 application ID 是 `org.sarmg.mediabackup`，Kotlin 路径、namespace、JNI 导出名和 APK badging 必须

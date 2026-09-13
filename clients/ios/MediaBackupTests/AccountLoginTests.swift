@@ -4,32 +4,30 @@ import XCTest
 final class AccountLoginTests: XCTestCase {
     func testRejectsInvalidOriginAndMissingCredentials() {
         for address in ["http://backup.example.com", "https://user:secret@backup.example.com", "https://backup.example.com/admin/", "https://backup.example.com/?token=x"] {
-            XCTAssertThrowsError(try AccountLogin(server: address, username: "user", password: "secret"))
+            XCTAssertThrowsError(try AccountLogin(server: address, authorizationCode: "instance-code"))
         }
-        XCTAssertThrowsError(try AccountLogin(server: "https://backup.example.com", username: "  ", password: "secret"))
-        XCTAssertThrowsError(try AccountLogin(server: "https://backup.example.com", username: "user", password: ""))
+        XCTAssertThrowsError(try AccountLogin(server: "https://backup.example.com", authorizationCode: "  "))
     }
-    func testExplicitLoginValidatesCredentialsWithoutTrimmingPassword() async throws {
-        let login = try AccountLogin(server: " https://backup.example.com/ ", username: " user ", password: " secret ")
+    func testExplicitPairingValidatesAndTrimsAuthorizationCode() async throws {
+        let login = try AccountLogin(server: " https://backup.example.com/ ", authorizationCode: " instance-code ")
         let expected = BootstrapResponse(bearerToken: "test-token", accountId: UUID(), deviceId: UUID())
-        let response = try await login.authenticate { url, username, password in
+        let response = try await login.authenticate { url, authorizationCode in
             XCTAssertEqual(url.absoluteString, "https://backup.example.com/")
-            XCTAssertEqual(username, "user")
-            XCTAssertEqual(password, " secret ")
+            XCTAssertEqual(authorizationCode, "instance-code")
             return expected
         }
         XCTAssertEqual(response.bearerToken, expected.bearerToken)
         XCTAssertEqual(response.accountId, expected.accountId)
     }
     func testFailureAndEmptyTokenCannotReportSuccessfulLogin() async throws {
-        let login = try AccountLogin(server: "https://backup.example.com", username: "user", password: "wrong")
+        let login = try AccountLogin(server: "https://backup.example.com", authorizationCode: "wrong-code")
         do {
-            _ = try await login.authenticate { _, _, _ in throw CoordinatorFailure.message("账户或密码不正确") }
+            _ = try await login.authenticate { _, _ in throw CoordinatorFailure.message("授权码无效") }
             XCTFail("Rejected credentials must not produce a session")
-        } catch { XCTAssertEqual(error.localizedDescription, "账户或密码不正确") }
+        } catch { XCTAssertEqual(error.localizedDescription, "授权码无效") }
         do {
-            _ = try await login.authenticate { _, _, _ in BootstrapResponse(bearerToken: "", accountId: UUID(), deviceId: UUID()) }
+            _ = try await login.authenticate { _, _ in BootstrapResponse(bearerToken: "", accountId: UUID(), deviceId: UUID()) }
             XCTFail("Missing bearer token must not produce a session")
-        } catch { XCTAssertTrue(error.localizedDescription.contains("有效登录凭据")) }
+        } catch { XCTAssertTrue(error.localizedDescription.contains("有效配对凭据")) }
     }
 }

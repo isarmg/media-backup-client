@@ -55,7 +55,7 @@ internal fun SystemSelectionScreen(context: Context, config: SecureConfig, profi
         Text("预计大小：${selection.sumOf { it.bytes ?: 0 } / (1024 * 1024)} MiB${if (selection.any { it.bytes == null }) " + 待确认大小" else ""}")
         Text(notice)
         Button(enabled = !busy && selection.isNotEmpty(), onClick = {
-            if (config.serverUrl.isBlank() || config.username.isBlank() || config.password.isBlank()) {
+            if (config.serverUrl.isBlank() || config.authorizationCode.isBlank()) {
                 notice = "请先在设置中保存服务器和备份账户"
             } else scope.launch {
                 busy = true

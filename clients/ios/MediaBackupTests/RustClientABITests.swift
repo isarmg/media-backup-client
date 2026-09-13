@@ -87,9 +87,9 @@ final class RustClientABITests: XCTestCase {
         XCTAssertEqual(ClientFailure.message("备份记录暂时不可用").localizedDescription, "备份记录暂时不可用")
     }
 
-    func testRecreatedAccountKeepsOldQueueAndReloginKeepsCurrentQueue() throws {
-        let server = "https://backup.example.com", username = "login-\(UUID().uuidString)"
-        let account = UUID(), replacement = UUID()
+    func testAuthorizationRotationReusesInstanceQueueAndIdentityDriftFailsClosed() throws {
+        let server = "https://backup.example.com", firstCode = "code-\(UUID().uuidString)", nextCode = "code-\(UUID().uuidString)"
+        let account = UUID(), replacement = UUID(), device = UUID()
         var profiles = Set<String>()
         defer {
             if let support = try? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
@@ -99,26 +99,22 @@ final class RustClientABITests: XCTestCase {
         }
         try autoreleasepool {
             var stores: [String: TransferStore] = [:]
-            func login(_ id: UUID) throws -> (profile: String, store: TransferStore) {
-                try TransferStore.bindAccount(server: server, username: username, accountId: id, deviceId: UUID()) { key in
+            func pair(_ code: String, accountId: UUID = account) throws -> (profile: String, store: TransferStore) {
+                try TransferStore.bindAccount(server: server, authorizationCode: code, accountId: accountId, deviceId: device) { key in
                     profiles.insert(key)
                     if let value = stores[key] { return value }
                     let value = try TransferStore(profile: key); stores[key] = value; return value
                 }
             }
-            let original = try login(account)
+            let original = try pair(firstCode)
             try original.store.client.transfer(["op": "create_batch", "id": UUID().uuidString,
                 "items": [["id": "selected", "source": "local-photo"]]])
-            XCTAssertEqual(original.profile, try login(account).profile)
-            let recreated = try login(replacement)
-            XCTAssertNotEqual(original.profile, recreated.profile)
-            XCTAssertTrue(try recreated.store.batches().isEmpty)
-            XCTAssertEqual(recreated.profile, try login(replacement).profile)
+            let repaired = try pair(nextCode)
+            XCTAssertEqual(original.profile, repaired.profile)
             XCTAssertEqual(try original.store.batches().count, 1)
             let binding = try original.store.client.transfer(["op": "binding"]) as? [String: Any]
             XCTAssertEqual(binding?["account_id"] as? String, account.uuidString)
-            XCTAssertEqual(original.profile, try login(account).profile)
-            XCTAssertEqual(try original.store.batches().count, 1)
+            XCTAssertThrowsError(try pair(nextCode, accountId: replacement))
         }
     }
 
