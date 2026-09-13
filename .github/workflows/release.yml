@@ -3,11 +3,11 @@ name: Release
 on:
   push:
     tags:
-      - "v0.4.5"
+      - "v0.4.6"
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing immutable version tag to publish (must be v0.4.5)
+        description: Existing immutable version tag to publish (must be v0.4.6)
         required: true
         type: string
 
@@ -48,8 +48,8 @@ jobs:
       - run: cargo test --workspace --locked
 
   android:
-    # 0.4.5 fixes only iOS system path handling; use the existing signed 0.4.4 APK.
-    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name) != 'v0.4.5' }}
+    # 0.4.6 fixes only iOS system path handling; use the existing signed 0.4.4 APK.
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name) != 'v0.4.6' }}
     name: Android APK
     needs: validate
     environment: android-signing
@@ -204,4 +204,4 @@ jobs:
             echo "Refusing to reuse or overwrite existing release $RELEASE_TAG" >&2
             exit 1
           fi
-          gh release create "$RELEASE_TAG" dist/* --verify-tag --notes-file docs/releases/0.4.5.md --title "$RELEASE_TAG"
+          gh release create "$RELEASE_TAG" dist/* --verify-tag --notes-file docs/releases/0.4.6.md --title "$RELEASE_TAG"
