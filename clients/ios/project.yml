@@ -6,7 +6,7 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.10"
-    MARKETING_VERSION: "0.4.7"
+    MARKETING_VERSION: "0.4.8"
     CURRENT_PROJECT_VERSION: "10"
 targets:
   MediaBackup:
