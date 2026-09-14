@@ -14,9 +14,6 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
-import org.json.JSONObject
-import java.util.concurrent.TimeUnit
 
 @Composable
 internal fun AccountDialog(context: Context, config: SecureConfig, onDismiss: () -> Unit, onLoggedIn: () -> Unit) {
@@ -47,8 +44,7 @@ internal fun AccountDialog(context: Context, config: SecureConfig, onDismiss: ()
             scope.launch {
                 try {
                     val result = withContext(Dispatchers.IO) {
-                        val client = OkHttpClient.Builder().callTimeout(30, TimeUnit.SECONDS).build()
-                        val api = BackupApi(address, "", client)
+                        val api = BackupApi(address, "")
                         val token = api.bootstrap(code, Build.MODEL)
                         check(token.isNotBlank()) { "服务器没有返回有效登录凭据" }
                         check(config.connection() == expected) { "账户已改变，请重新登录" }

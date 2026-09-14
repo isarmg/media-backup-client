@@ -68,7 +68,7 @@ class BackupApi(
             .put(file.asRequestBody(binaryType))
             .build()
         client.newCall(request).execute().use {
-            if (!it.isSuccessful) error("分块上传失败: ${it.code} ${it.body.string()}")
+            if (!it.isSuccessful) error("分块上传失败: ${it.code}")
         }
     }
 
@@ -154,7 +154,7 @@ class BackupApi(
     fun download(path: String, output: OutputStream) {
         val request = authenticated(Request.Builder().url(resolve(path))).get().build()
         client.newCall(request).execute().use {
-            if (!it.isSuccessful) error("下载失败: ${it.code} ${it.body.string()}")
+            if (!it.isSuccessful) error("下载失败: ${it.code}")
             it.body.byteStream().use { input -> input.copyTo(output) }
         }
     }
@@ -184,7 +184,7 @@ class BackupApi(
     fun downloadBytes(path: String): ByteArray {
         val request = authenticated(Request.Builder().url(resolve(path))).get().build()
         client.newCall(request).execute().use {
-            if (!it.isSuccessful) error("下载失败: ${it.code} ${it.body.string()}")
+            if (!it.isSuccessful) error("下载失败: ${it.code}")
             return it.body.bytes()
         }
     }
@@ -199,7 +199,7 @@ class BackupApi(
         }
         client.newCall(builder.build()).execute().use {
             val text = it.body.string()
-            if (!it.isSuccessful) error("服务端请求失败: ${it.code} $text")
+            if (!it.isSuccessful) error("服务端请求失败: ${it.code}")
             return if (expectJson && text.isNotBlank()) JSONObject(text) else JSONObject()
         }
     }
@@ -208,7 +208,7 @@ class BackupApi(
         val request = authenticated(Request.Builder().url(url)).get().build()
         client.newCall(request).execute().use {
             val text = it.body.string()
-            if (!it.isSuccessful) error("服务端请求失败: ${it.code} $text")
+            if (!it.isSuccessful) error("服务端请求失败: ${it.code}")
             return org.json.JSONArray(text)
         }
     }
