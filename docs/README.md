@@ -8,6 +8,7 @@
 | 初学者学习指南 | [beginner-guide/README.md](beginner-guide/README.md) | 第一次接触 Rust 或移动备份的开发者 | 如何建立心智模型、运行项目并安全修改代码 |
 | 工作流程与流程树 | [project-workflow.md](project-workflow.md) | 开发、评审和排障人员 | 请求、上传、同步、恢复、发行如何流转 |
 | 完整功能与取舍 | [feature-inventory-and-tradeoffs.md](feature-inventory-and-tradeoffs.md) | 产品、架构和维护人员 | 已实现什么、明确不做什么、为什么 |
+| 接口消费者边界 | [interface-consumers.md](interface-consumers.md) | 产品、客户端和 API 工具维护人员 | 哪些接口进入移动界面，哪些保留给账户自动化 |
 | 必要 README | [../README.md](../README.md) | 所有人 | 项目定位、入口、最短验证路径 |
 | Client 运维 | [operations.md](operations.md) | 移动端测试、值班和发布人员 | Android/iOS 构建、权限、队列、配对、故障与发布边界 |
 

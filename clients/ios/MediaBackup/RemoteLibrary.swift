@@ -45,6 +45,13 @@ struct TimelinePage: Decodable {
     enum CodingKeys: String, CodingKey { case items, nextCursor }
 }
 
+struct DuplicateGroup: Decodable, Identifiable {
+    let contentBlake3: String
+    let contentSize: UInt64
+    let assets: [RemoteAsset]
+    var id: String { contentBlake3 }
+}
+
 struct RemoteLibrary {
     let serverURL: URL
     let token: String
@@ -135,13 +142,25 @@ struct RemoteLibrary {
         try await send(path: "/v2/tags/\(tag.tagId)/assets/\(asset.assetId)", method: "POST")
     }
 
-    func duplicateGroupCount() async throws -> Int {
+    func removeTag(named name: String, from asset: RemoteAsset) async throws {
+        let (data, response) = try await SecureSession.shared.data(for: authorized(
+            url: serverURL.appending(path: "/v2/tags"), method: "GET"
+        ))
+        try requireSuccess(response, data: data)
+        let tags = try decoder.decode([RemoteTag].self, from: data)
+        guard let tag = tags.first(where: { $0.name == name }) else {
+            throw RemoteLibraryError.server("标签不存在")
+        }
+        try await send(path: "/v2/tags/\(tag.tagId)/assets/\(asset.assetId)", method: "DELETE")
+    }
+
+    func duplicateGroups() async throws -> [DuplicateGroup] {
         let (data, response) = try await SecureSession.shared.data(for: authorized(
             url: serverURL.appending(path: "/v2/duplicates"),
             method: "GET"
         ))
         try requireSuccess(response, data: data)
-        return (try JSONSerialization.jsonObject(with: data) as? [[String: Any]] ?? []).count
+        return try decoder.decode([DuplicateGroup].self, from: data)
     }
 
     func thumbnailData(for asset: RemoteAsset) async throws -> Data? {
@@ -160,6 +179,11 @@ struct RemoteLibrary {
 
     func restoreFromTrash(asset: RemoteAsset) async throws {
         try await send(path: "/v2/assets/\(asset.assetId)/restore", method: "POST")
+    }
+
+    func deletePermanently(asset: RemoteAsset) async throws {
+        guard asset.isTrashed else { throw RemoteLibraryError.server("只能永久删除回收站中的照片") }
+        try await send(path: "/v2/assets/\(asset.assetId)", method: "DELETE")
     }
 
     func restoreToPhotos(asset: RemoteAsset, progress: ((Int64) -> Void)? = nil) async throws -> String {

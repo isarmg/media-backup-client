@@ -6,6 +6,7 @@ struct CloudGalleryScreen: View {
     @State private var selected: RemoteAsset?
     @State private var dateFilter = false
     @State private var showFilters = false
+    @State private var showDuplicates = false
     @State private var startDate = Date().addingTimeInterval(-30 * 86400)
     @State private var endDate = Date().addingTimeInterval(86400)
     var body: some View {
@@ -23,6 +24,10 @@ struct CloudGalleryScreen: View {
                         Button("刷新图库") { Task { await coordinator.refreshLibrary() } }
                         Button(coordinator.showingTrash ? "返回全部照片" : "打开回收站") {
                             Task { await coordinator.refreshLibrary(trashed: !coordinator.showingTrash) }
+                        }
+                        Button("查看重复项") {
+                            showDuplicates = true
+                            Task { await coordinator.loadDuplicateGroups() }
                         }
                     } label: { Image(systemName: "ellipsis.circle").frame(width: 44, height: 44) }
                         .accessibilityLabel("图库选项")
@@ -69,6 +74,24 @@ struct CloudGalleryScreen: View {
                     .navigationTitle("筛选云端照片").navigationBarTitleDisplayMode(.inline)
                     .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { showFilters = false } } }
             }.presentationDetents([.medium, .large])
+        }
+        .sheet(isPresented: $showDuplicates) {
+            NavigationStack {
+                List {
+                    if coordinator.duplicateGroups.isEmpty && !coordinator.libraryLoading {
+                        Text("没有检测到内容相同的媒体。")
+                    }
+                    ForEach(Array(coordinator.duplicateGroups.enumerated()), id: \.element.id) { index, group in
+                        Section("第 \(index + 1) 组 · \(group.assets.count) 项 · \(group.contentSize) 字节") {
+                            ForEach(group.assets) { asset in
+                                Text(asset.primary?.filename ?? asset.sourceAssetId)
+                            }
+                        }
+                    }
+                }
+                .navigationTitle("重复项")
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { showDuplicates = false } } }
+            }
         }
         .task(id: coordinator.profile) {
             if coordinator.remoteAssets.isEmpty { await coordinator.refreshLibrary() }
@@ -151,6 +174,7 @@ struct PhotoViewerScreen: View {
     @Environment(\.dismiss) private var dismiss
     @State private var selected: UUID?
     @State private var addingTag = false
+    @State private var confirmingDelete = false
     private var current: RemoteAsset? { coordinator.remoteAssets.first { $0.id == (selected ?? initial.id) } }
     var body: some View {
         NavigationStack {
@@ -179,7 +203,13 @@ struct PhotoViewerScreen: View {
                             Button(asset.favorite ? "取消收藏" : "收藏") { Task { await coordinator.toggleFavorite(asset); dismiss() } }
                             Button(asset.archived ? "取消归档" : "归档") { Task { await coordinator.toggleArchived(asset); dismiss() } }
                             Button("添加标签") { coordinator.newTagName = ""; addingTag = true }
+                            ForEach(asset.tagNames, id: \.self) { name in
+                                Button("移除标签：\(name)") { Task { await coordinator.removeTag(name, from: asset); dismiss() } }
+                            }
                             Button(asset.isTrashed ? "恢复照片" : "移入回收站") { Task { await coordinator.toggleTrash(asset); dismiss() } }
+                            if asset.isTrashed {
+                                Button("永久删除", role: .destructive) { confirmingDelete = true }
+                            }
                         } label: { Image(systemName: "ellipsis.circle") }.accessibilityLabel("照片操作")
                     }
                 }
@@ -189,6 +219,14 @@ struct PhotoViewerScreen: View {
                 Button("取消", role: .cancel) {}
                 Button("添加") { if let asset = current { Task { await coordinator.addTag(asset); dismiss() } } }
                     .disabled(coordinator.newTagName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            .confirmationDialog("永久删除照片？", isPresented: $confirmingDelete, titleVisibility: .visible) {
+                Button("永久删除", role: .destructive) {
+                    if let asset = current { Task { await coordinator.deletePermanently(asset); dismiss() } }
+                }
+                Button("取消", role: .cancel) {}
+            } message: {
+                Text("此操作无法撤销。服务器可能在后台继续回收未引用的文件。")
             }
         }.onAppear { selected = initial.id }
     }

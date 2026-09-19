@@ -59,6 +59,7 @@ internal fun CloudGalleryScreen(context: Context, config: SecureConfig, profile:
     var toDate by remember { mutableStateOf("") }
     var generation by remember(profile) { mutableIntStateOf(0) }
     var selected by remember(profile) { mutableStateOf<Int?>(null) }
+    var duplicateGroups by remember(profile) { mutableStateOf<org.json.JSONArray?>(null) }
     var pendingDownload by remember(profile) { mutableStateOf<Pair<BackupApi, RemoteAsset>?>(null) }
     fun download(connection: BackupApi, asset: RemoteAsset) { scope.launch {
         notice = "正在下载：${asset.resources.firstOrNull { it.role == "primary" }?.filename ?: "媒体"}"
@@ -136,6 +137,13 @@ internal fun CloudGalleryScreen(context: Context, config: SecureConfig, profile:
             TextButton(onClick = { load(true) }) { Text("刷新") }
             TextButton(onClick = { trash = !trash; load(true) }) { Text(if (trash) "返回云端" else "回收站") }
             TextButton(onClick = { favorites = !favorites; load(true) }) { Text(if (favorites) "全部" else "收藏") }
+            TextButton(onClick = {
+                val connection = api ?: return@TextButton
+                scope.launch {
+                    try { duplicateGroups = withContext(Dispatchers.IO) { connection.duplicateGroups() } }
+                    catch (error: Exception) { notice = error.message ?: "重复项加载失败" }
+                }
+            }) { Text("重复项") }
         }
         if (notice.isNotEmpty()) Text(notice, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -213,11 +221,42 @@ internal fun CloudGalleryScreen(context: Context, config: SecureConfig, profile:
                                 "archive" -> connection.updateAsset(asset.id, archived = !asset.archived)
                                 "trash" -> if (asset.trashed) connection.restoreAsset(asset.id) else connection.trashAsset(asset.id)
                                 "tag" -> { val created = connection.createTag(tag); connection.addTagAsset(created.getString("tag_id"), asset.id) }
+                                "remove-tag" -> {
+                                    val tags = connection.listTags()
+                                    val existing = (0 until tags.length()).map(tags::getJSONObject)
+                                        .firstOrNull { it.getString("name") == tag }
+                                        ?: error("标签不存在")
+                                    connection.removeTagAsset(existing.getString("tag_id"), asset.id)
+                                }
+                                "delete" -> connection.deleteAssetPermanently(asset.id)
                             }
                         }
                         selected = null; load(true)
                     } catch (e: Exception) { notice = e.message ?: "更新失败" }
                 } })
+        }
+    }
+    duplicateGroups?.let { groups ->
+        ModalBottomSheet(onDismissRequest = { duplicateGroups = null }) {
+            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("重复项", style = MaterialTheme.typography.titleLarge)
+                if (groups.length() == 0) Text("没有检测到内容相同的媒体。")
+                for (index in 0 until groups.length()) {
+                    val group = groups.getJSONObject(index)
+                    val members = group.getJSONArray("assets")
+                    ElevatedCard(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(12.dp)) {
+                            Text("第 ${index + 1} 组 · ${members.length()} 项", style = MaterialTheme.typography.titleMedium)
+                            Text("${group.getLong("content_size")} 字节", style = MaterialTheme.typography.bodySmall)
+                            for (member in 0 until members.length()) {
+                                val asset = members.getJSONObject(member)
+                                Text(asset.optString("source_asset_id", asset.getString("asset_id")), style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                }
+                Button(onClick = { duplicateGroups = null }, modifier = Modifier.fillMaxWidth()) { Text("完成") }
+            }
         }
     }
 }
@@ -256,6 +295,7 @@ internal fun PhotoViewerScreen(context: Context, api: BackupApi, profile: String
                 val pager = rememberPagerState(initialPage = index, pageCount = { assets.size })
                 var menu by remember { mutableStateOf(false) }
                 var addingTag by remember { mutableStateOf(false) }
+                var confirmingDelete by remember { mutableStateOf(false) }
                 var tag by remember { mutableStateOf("") }
                 val current = assets[pager.currentPage]
                 Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -267,7 +307,11 @@ internal fun PhotoViewerScreen(context: Context, api: BackupApi, profile: String
                             DropdownMenuItem(text = { Text(if (current.favorite) "取消收藏" else "收藏") }, onClick = { menu = false; onFavorite(current) })
                             DropdownMenuItem(text = { Text(if (current.archived) "取消归档" else "归档") }, onClick = { menu = false; onAction(current, "archive", "") })
                             DropdownMenuItem(text = { Text("添加标签") }, onClick = { menu = false; tag = ""; addingTag = true })
+                            current.tagNames.forEach { existing ->
+                                DropdownMenuItem(text = { Text("移除标签：$existing") }, onClick = { menu = false; onAction(current, "remove-tag", existing) })
+                            }
                             DropdownMenuItem(text = { Text(if (current.trashed) "恢复照片" else "移入回收站") }, onClick = { menu = false; onAction(current, "trash", "") })
+                            if (current.trashed) DropdownMenuItem(text = { Text("永久删除") }, onClick = { menu = false; confirmingDelete = true })
                         }
                     }
                 }
@@ -275,6 +319,10 @@ internal fun PhotoViewerScreen(context: Context, api: BackupApi, profile: String
                     text = { OutlinedTextField(tag, { tag = it }, label = { Text("标签名称") }, singleLine = true) },
                     confirmButton = { TextButton(enabled = tag.isNotBlank(), onClick = { addingTag = false; onAction(current, "tag", tag.trim()) }) { Text("添加") } },
                     dismissButton = { TextButton(onClick = { addingTag = false }) { Text("取消") } })
+                if (confirmingDelete) AlertDialog(onDismissRequest = { confirmingDelete = false }, title = { Text("永久删除照片？") },
+                    text = { Text("此操作无法撤销。服务器可能在后台继续回收未引用的文件。") },
+                    confirmButton = { TextButton(onClick = { confirmingDelete = false; onAction(current, "delete", "") }) { Text("永久删除") } },
+                    dismissButton = { TextButton(onClick = { confirmingDelete = false }) { Text("取消") } })
                 HorizontalPager(pager, Modifier.weight(1f), key = { assets[it].id }) { page ->
                     var zoom by remember { mutableFloatStateOf(1f) }
                     val asset = assets[page]

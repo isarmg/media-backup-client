@@ -28,6 +28,7 @@ final class BackupCoordinator: ObservableObject {
     @Published var newTagName = ""
     @Published var cloudFilters = CloudFilters()
     @Published var remoteDevices: [RemoteDevice] = []
+    @Published var duplicateGroups: [DuplicateGroup] = []
     @Published var favoritesOnly = false
     @Published var libraryLoading = false
     @Published var nextCursor: String?
@@ -50,7 +51,7 @@ final class BackupCoordinator: ObservableObject {
         credentialGeneration += 1
         libraryGeneration += 1
         uploader?.cancel(); uploader = nil
-        downloads = []; library = nil; remoteAssets = []; remoteAlbums = []; selectedRemoteAlbum = nil; nextCursor = nil; batches = []; libraryLoading = false
+        downloads = []; library = nil; remoteAssets = []; remoteAlbums = []; duplicateGroups = []; selectedRemoteAlbum = nil; nextCursor = nil; batches = []; libraryLoading = false
     }
     func stopTransfers() { uploader?.cancel(); uploader = nil }
     func store() throws -> TransferStore {
@@ -225,6 +226,20 @@ final class BackupCoordinator: ObservableObject {
     }
     func addTag(_ asset: RemoteAsset) async {
         do { try await remoteLibrary().addTag(named: newTagName, to: asset); await refreshLibrary() }
+        catch { status = error.localizedDescription }
+    }
+    func removeTag(_ name: String, from asset: RemoteAsset) async {
+        do { try await remoteLibrary().removeTag(named: name, from: asset); await refreshLibrary() }
+        catch { status = error.localizedDescription }
+    }
+    func loadDuplicateGroups() async {
+        do {
+            duplicateGroups = try await remoteLibrary().duplicateGroups()
+            status = duplicateGroups.isEmpty ? "没有检测到重复项" : "检测到 \(duplicateGroups.count) 组重复项"
+        } catch { status = error.localizedDescription }
+    }
+    func deletePermanently(_ asset: RemoteAsset) async {
+        do { try await remoteLibrary().deletePermanently(asset: asset); await refreshLibrary() }
         catch { status = error.localizedDescription }
     }
     func toggleTrash(_ asset: RemoteAsset) async {

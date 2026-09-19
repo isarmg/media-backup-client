@@ -134,6 +134,10 @@ class BackupApi(
         jsonRequest("$serverUrl/v2/assets/$assetId/restore", "POST", "{}", expectJson = false)
     }
 
+    fun deleteAssetPermanently(assetId: String) {
+        jsonRequest("$serverUrl/v2/assets/$assetId", "DELETE", "{}", expectJson = false)
+    }
+
     fun duplicateGroups(): org.json.JSONArray =
         jsonArrayRequest("$serverUrl/v2/duplicates?limit=50")
 
@@ -149,6 +153,10 @@ class BackupApi(
 
     fun addTagAsset(tagId: String, assetId: String) {
         jsonRequest("$serverUrl/v2/tags/$tagId/assets/$assetId", "POST", "{}", expectJson = false)
+    }
+
+    fun removeTagAsset(tagId: String, assetId: String) {
+        jsonRequest("$serverUrl/v2/tags/$tagId/assets/$assetId", "DELETE", "{}", expectJson = false)
     }
 
     fun download(path: String, output: OutputStream) {
@@ -195,6 +203,7 @@ class BackupApi(
             "GET" -> builder.get()
             "POST" -> builder.post((bodyText ?: "{}").toRequestBody(jsonType))
             "PATCH" -> builder.patch((bodyText ?: "{}").toRequestBody(jsonType))
+            "DELETE" -> builder.delete((bodyText ?: "{}").toRequestBody(jsonType))
             else -> error("unsupported method")
         }
         client.newCall(builder.build()).execute().use {
