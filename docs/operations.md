@@ -1,6 +1,6 @@
 # Media Backup Client 运维文档
 
-本文只描述 `0.4.9` Client：Rust 移动核心与 FFI、Android 应用和 iOS 应用。Server、管理 Web、
+本文只描述 `0.4.10` Client：Rust 移动核心与 FFI、Android 应用和 iOS 应用。Server、管理 Web、
 systemd、Caddy 和 Server 数据目录不属于本仓库；服务端部署请使用
 [media-backup-server](https://github.com/isarmg/media-backup-server) 的 Release 文档。
 
@@ -70,7 +70,7 @@ xcodebuild -project MediaBackup.xcodeproj -scheme MediaBackup \
 
 `./scripts/test-ios-system-directory.sh` 验证系统目录与 Rust 状态边界，
 `python3 scripts/test-package-ios-ipa.py` 验证 IPA 打包器。发布产物
-`media-backup-ios-0.4.9-unsigned.ipa` 未签名；安装前必须用自己的 Apple 身份签名，打包本身不会授予
+`media-backup-ios-0.4.10-unsigned.ipa` 未签名；安装前必须用自己的 Apple 身份签名，打包本身不会授予
 设备安装权限。
 
 iOS 依赖 PhotoKit 的完整或有限照片权限，并用 BGProcessingTask/后台 URLSession 尝试继续传输。
@@ -106,7 +106,7 @@ iOS 依赖 PhotoKit 的完整或有限照片权限，并用 BGProcessingTask/后
 
 ## 7. 发布检查
 
-标签必须精确为 `v0.4.9` 并指向待发布提交。Release workflow 分别构建 Android 正式 APK、iOS 未签名
+标签必须精确为 `v0.4.10` 并指向待发布提交。Release workflow 分别构建 Android 正式 APK、iOS 未签名
 IPA、校验和与身份清单。发布前要求普通 CI、Android 模拟器/JNI 门禁、iOS 测试和供应链策略全部通过。
 Client Release 不包含 Server 二进制、Web 资产、服务端配置或部署脚本。
 
