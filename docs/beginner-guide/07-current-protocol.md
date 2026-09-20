@@ -25,7 +25,7 @@ trim ASCII whitespace 与 ASCII lowercase 后必须是 3–64 bytes、首尾字�
 移动 `/v2/auth/bootstrap` 精确接受实例 `authorization_code`、`device_name` 和 `platform`，成功后签发设备 Token；
 更换授权码清除旧 Token 并要求重新配对。不接受旧的 username/password body，也不提供兼容分支。
 
-失败响应不使用产品私有 `{error}`。服务端直接序列化 `sarmg-error=0.3.0` 的 Foundation ErrorEnvelope 顶层
+失败响应不使用产品私有 `{error}`。服务端直接序列化 Foundation ErrorEnvelope 顶层
 `{code,message,retryable}`；`code` 只用小写字母开头的安全 ASCII 标识，当前没有 request ID 时不输出
 占位字段，当前没有结构化细节时也不输出 `details`。429 的 envelope 标记 `retryable:true`，并保留
 标准 `Retry-After` header；客户端应以 header 决定等待时间，不从 message 文本解析策略。
@@ -37,9 +37,9 @@ trim ASCII whitespace 与 ASCII lowercase 后必须是 3–64 bytes、首尾字�
 ```json
 {
   "product": "media-backup",
-  "application_version": "0.3.0",
+  "application_version": "0.4.0",
   "revision": 1,
-  "state_epoch": "media-backup-mobile-v0.3-r1"
+  "state_epoch": "media-backup-mobile-v0.4-r1"
 }
 ```
 

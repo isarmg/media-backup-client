@@ -24,7 +24,7 @@ enum MobileContractV02 {
               applicationVersion == self.applicationVersion,
               revision == self.revision,
               stateEpoch == self.stateEpoch else {
-            throw ClientFailure.message("Rust Client 返回了非 v0.2 revision 1 合约")
+            throw ClientFailure.message("Rust Client 返回了非当前 revision 1 合约")
         }
     }
 }

@@ -4,31 +4,31 @@
 
 ### 第一周：契约与入口
 
-读 workspace manifest、protocol、server main/routes/config。画出四种身份和每类路由。练习为一个无状态
-GET 写 router test，观察当前三字段错误 envelope，并证明响应不会伪造 request ID。
+读 workspace manifest、`sarmg-client.toml`、Client constants、SQLite Schema 与 protocol Git pin。画出
+发行版本、持久状态身份、FFI ABI 和 HTTP API 四类版本边界，并解释它们为什么不能互换。
 
 ### 第二周：上传与存储
 
-读 upload/commit/storage/rooted_fs/database tests。为“同 index 不同 bytes”写负例，逐个标出 fsync、
-rename、transaction 和 crash point。
+读 `crypto::prepare_file`、`client-core::next_prepared`、generation 回收和数据库测试。为准备、上传重试、
+完成清理逐个标出 `sync_all`、SQLite 提交和 crash point。
 
 ### 第三周：移动端
 
-读 client-core Schema/job、mobile-ffi、Android Worker、iOS Coordinator。画出系统终止后恢复路径，运行
+读 mobile-ffi、Android Worker、iOS Coordinator 与两端安全存储。画出系统终止后恢复路径，运行
 epoch gate，并证明旧命名空间不会被读取。
 
 ### 第四周：发布与运维
 
-读 release.rs、manifest writer、build/test deployment、systemd。构建临时归档，分别篡改文件、权限、
-添加 extra file，确认验证拒绝。
+读 Android/iOS 构建脚本、release workflow、签名门禁与 IPA 打包器。验证 Debug 与 Release 的 ABI、
+签名材料隔离、版本一致性和制品命名；Server 的 release tree/systemd 属于独立仓库。
 
 ## 推荐练习
 
 1. 构造在 WAL 中提交 current Schema 的 fixture，证明验证不改原件。
-2. 模拟上传 complete 在 stage、`linkat` 发布、metadata commit 前后中断，说明重启收敛结果。
-3. 用不可信 forwarded header 请求，验证 client identity 不被伪造。
-4. 让移动 sync 在事务提交前终止，证明 cursor 不会提前推进。
-5. 对 release tree 增加 symlink/hardlink/extra file，观察失败信息。
+2. 准备并删除宿主临时源，再把任务标为可重试失败，证明下次复用同一准备结果。
+3. 在准备持久化前模拟失败，再成功重试，证明只回收同一 job 的旧 generation。
+4. 让移动增量缓存事务在游标提交前终止，证明不会提前推进。
+5. 用跨域、降级 HTTP 或 redirect 资源地址请求下载，证明 Android/iOS 拒绝携带 Bearer 跟随。
 
 ## 术语表
 

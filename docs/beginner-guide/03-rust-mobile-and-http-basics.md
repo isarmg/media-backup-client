@@ -2,16 +2,16 @@
 
 ## Rust workspace 的依赖方向
 
-允许方向大致为 `protocol <- crypto <- client-core/mobile-ffi`，服务端组合 protocol/crypto。共享 crate 不
-应反向依赖 Android、iOS 或 server。循环依赖通常意味着职责放错。
+本仓库的方向大致为 `Server protocol Git 依赖 <- crypto <- client-core <- mobile-ffi`。Rust crate 不
+应反向依赖 Android 或 iOS 宿主；Server 也不是本 workspace 成员。循环依赖通常意味着职责放错。
 
 Rust 中 `Result<T, E>` 表示可恢复失败；`?` 传播错误并保留 context。处理外部输入时不要 `unwrap`。
 `serde(deny_unknown_fields)` 是当前 wire contract 的重要组成，不能为了“客户端方便”删除。
 
-## 异步与阻塞工作
+## 阻塞工作与宿主调度
 
-Axum handler 在 Tokio runtime 上运行。文件流和网络 I/O 使用 async；Argon2、部分 SQLite/文件验证等
-阻塞工作必须进入受限阻塞池或专门并发闸门。把重 CPU 直接放 handler 会拖慢所有请求。
+Rust Client 核心执行 SQLite 与本地文件操作，Android/iOS 宿主负责网络和后台调度。大文件不得在 UI
+线程无界读入内存；系统随时可能暂停后台任务，因此每一步都要以持久队列为恢复边界。
 
 ## Android 宿主职责
 

@@ -38,7 +38,7 @@ pub enum ClientError {
     NotFound,
     #[error("invalid media kind: {0}")]
     InvalidMediaKind(String),
-    #[error("invalid mobile v0.2 contract: {0}")]
+    #[error("invalid current mobile contract: {0}")]
     InvalidContract(String),
     #[error("unsafe staging state: {0}")]
     Staging(#[from] sarmg_client_fs_safety::Error),

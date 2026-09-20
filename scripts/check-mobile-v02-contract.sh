@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 fail() {
-    echo "mobile v0.2 contract gate: $*" >&2
+    echo "mobile ABI v2 contract gate: $*" >&2
     exit 1
 }
 
@@ -47,7 +47,7 @@ for required in \
     # All platform clients live below clients/; keeping this gate on the
     # canonical paths makes directory drift fail visibly in CI.
     grep -R -I -q -F "$required" crates/mobile-ffi crates/client-core clients/android clients/ios \
-        || fail "required v0.2 contract marker is missing: $required"
+        || fail "required mobile ABI v2 contract marker is missing: $required"
 done
 
 grep -q -F 'MEDIA_BACKUP_ANDROID_SIGNING_PKCS12_BASE64' .github/workflows/release.yml \
@@ -77,4 +77,4 @@ if grep -q -F 'unsigned.tar.gz' .github/workflows/release.yml; then
     fail "iOS releases must publish IPA files rather than app tarballs"
 fi
 
-echo "mobile v0.2 ABI and state-epoch static gate passed"
+echo "mobile ABI v2 and state-epoch static gate passed"

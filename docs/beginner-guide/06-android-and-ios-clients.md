@@ -22,11 +22,11 @@ Worker 重启时从 durable state 继续，不能仅依赖 Compose 内存状态�
 替换远端相册成员；但 Android 14 selected-media grant 当前没有被标成“不完整扫描”，维护者必须知道它
 仍可能把不可见成员从相册关系中移除。
 
-“从 durable state 继续”必须按状态理解：`ready` job 会复用已经持久化的 prepared JSON 和 part；当前
-`retry_wait` 到期后却会重新调用 `prepare_file`。Android/iOS 扫描器通常把系统媒体导出为 staging 临时源，
-并要求准备成功后删除它；若随后上传失败，下一轮可能因源文件已不存在而无法复用仍在磁盘上的 part。
-准备失败或 `preparing` 崩溃残留也没有自动按 job 目录清理。维护者不能把“SQLite 有任务”直接等价为
-“所有上传失败都可恢复”，也不能用清空整个 staging 的方式排障。
+“从 durable state 继续”必须按状态理解：`ready` job 和带 `prepared_json` 的到期 `retry_wait` job 都会
+复用已经持久化的 part，不再读取已经删除的导出临时源；进程重启还会把带准备结果的 `preparing` 或
+`uploading` 恢复成 `ready`。没有准备结果的任务才回到 `discovered` 并重新读取源文件。每次准备写入新的
+generation，成功持久化后回收同一 job 的旧 generation；准备中途失败的未引用 generation 要等后续成功
+准备才能被回收。不能用清空整个 staging 的方式排障。
 
 ## Android Secret 与权限
 

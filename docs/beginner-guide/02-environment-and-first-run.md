@@ -2,26 +2,24 @@
 
 ## 基础工具
 
-服务端固定 Rust `1.98.0`（minimal + rustfmt/clippy），管理 Web 固定 Node `26.7.0`、React `19.2.8`、
-TypeScript strict 与 Vite `7.3.6`。Android 另需 JDK、Android SDK API 36、build tools 36、NDK
+本仓库固定 Rust `1.98.0`（minimal + rustfmt/clippy）。Android 另需 JDK 17、Android SDK API 36、build tools 36、NDK
 `28.2.13676358` 与 `cargo-ndk`；iOS 需要 macOS、Xcode、XcodeGen 和 Apple Rust target。
 
 先确认工作区：
 
 ```bash
 rustc --version
-npm ci --prefix clients/web
-npm run build --prefix clients/web
 cargo metadata --locked --no-deps --format-version 1
 cargo check --workspace --locked
 ```
 
-`npm run build` 会先执行 `check:foundation`，并生成 Server 编译时嵌入的 dist；因此 Cargo 之前必须完成
-Web 构建。不要用 `cargo update` 或宽版本范围解决本机问题，它们会改变锁图或绕过统一基线。
+本仓库没有 Node 或管理 Web 构建。不要用 `cargo update` 或宽版本范围解决本机问题，它们会改变锁图或
+绕过固定的 Server protocol 与 Foundation Client revision。
 
-## 服务端开发配置
+## 服务端开发配置（独立仓库）
 
-`config/media-backup.env.example` 是字段说明，不应直接变成生产 Secret 文件。开发环境准备独立临时数据库和数据目录，
+以下配置和命令须在 [media-backup-server](https://github.com/isarmg/media-backup-server) checkout 中执行；
+本仓库没有 `config/`、Server binary 或管理 Web。Server 的 `config/media-backup.env.example` 是字段说明，不应直接变成生产 Secret 文件。开发环境准备独立临时数据库和数据目录，
 设置规范化管理员 `BOOTSTRAP_ADMIN_USERNAME` 和强随机 `BOOTSTRAP_ADMIN_PASSWORD`。默认样例为 `admin`；服务不会读取
 `ADMIN_EMAIL`。username 候选经 ASCII trim/lowercase 后必须是 3–64 bytes、首尾字母数字且仅含
 `[a-z0-9._-]`。只有

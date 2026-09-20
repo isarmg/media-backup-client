@@ -3,19 +3,17 @@
 ## 测试层级
 
 - Rust unit：纯 DTO、Hash、状态机、路径、限流。
-- Rust integration：真实 SQLite、WAL、HTTP router、文件系统与并发。
+- Rust integration：真实 SQLite、WAL、文件系统、FFI 与并发。
 - 契约静态门：Rust FFI header、JNI、Swift symbol、版本/application ID。
 - Android：Kotlin unit、Compose/Gradle compile、APK assemble。
 - iOS：XcodeGen、epoch isolation test、simulator compile。
-- 发行：真实 source-bound binary、archive、install、relocation、tamper negative cases。
+- 发行：版本一致性、供应链策略、签名 Android APK、未签名 iOS IPA 与校验和。
 
 ## 本地质量门
 
 ```bash
 ./scripts/check-mobile-v02-contract.sh
 ./scripts/check-workflow-supply-chain.sh
-npm ci --prefix clients/web
-npm run build --prefix clients/web
 cargo fmt --all -- --check
 cargo check --workspace --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
@@ -25,16 +23,15 @@ cargo test --workspace --locked
 只跑目标测试适合迭代，不是最终验收。涉及登录 Argon2 的测试对 CPU 争用敏感；并发跑多个大 workspace
 可能制造 timeout 假失败，应在资源正常时单独复现。
 
-管理 Web 的 `build` 一定先执行 `check:foundation`。需要快速定位时可显式运行：
+FFI 需要额外执行真实 C 动态库与 host-JVM JNI 验收：
 
 ```bash
-npm run check:foundation --prefix clients/web
-npm run typecheck --prefix clients/web
+./scripts/test-mobile-ffi-c.sh
+./scripts/test-mobile-ffi-jni.sh
 ```
 
-门禁调用 Foundation 的统一 toolchain validator，检查 Node `26.7.0`、React `19.2.8`、Vite `7.3.6`、
-TypeScript `5.8.3`、类型包、依赖/lockfile、三个共享 CSS 摘要和根作用域。共享规则只在 Foundation 修改；
-产品颜色、卡片和登录布局只在 `clients/web/src/styles.css` 修改。不复制共享 CSS，不增设并行入口或 fallback。
+Android 单元/模拟器与 iOS Simulator 验收分别由 Gradle 和 Xcode 工作流执行。本仓库没有管理 Web；
+Node、React、Vite 与 `clients/web` 命令属于 Server 仓库。
 
 ## 调试分层
 
@@ -44,8 +41,9 @@ TypeScript `5.8.3`、类型包、依赖/lockfile、三个共享 CSS 摘要和根
 
 ## SQLite 调试
 
-优先运行 `doctor` 和测试 fixture，不在生产库运行手工 DDL。要分析拒绝路径，复制完整 generation 到
-隔离目录并保持原 mode/sidecar。确认错误是 identity、Schema、integrity、foreign key、锁还是存储。
+Client 没有 `doctor` 命令。用测试 fixture 或应用诊断读取状态，不在应用私有数据库运行手工 DDL。
+分析拒绝路径时复制完整 SQLite generation 到隔离目录并保持原 mode/sidecar，确认错误是 identity、
+Schema、integrity、foreign key、锁还是目录边界；服务端 `doctor` 只在 Server 仓库运行。
 
 ## 文件系统调试
 

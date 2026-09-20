@@ -22,9 +22,9 @@ Media Backup 解决的是“手机原始照片和视频可靠上传到自有服�
 完整的社交图库，也不是零知识加密系统。TLS 保护网络传输，服务端最终保存原始明文字节，因此服务器
 和数据卷管理员能够读取媒体；生产安全依赖主机权限、磁盘加密、TLS 和可靠备份。
 
-项目坚持当前版本边界：`0.3.0` 服务端、移动 `/v2` API、浏览器管理 `/api/v2` API、`plain-v1` 存储和
-`media-backup-mobile-v0.3-r1` 移动合约构成一个不可拆分的版本身份。发现非当前状态时产品必须只读拒绝，
-不能猜测或转换。
+当前 Client 发行号为 `0.4.10`；持久状态合同仍是应用版本 `0.4.0`、revision 1、
+`media-backup-mobile-v0.4-r1` 与 SQLite schema revision 2。移动 `/v2` API 和 `plain-v1` 存储由固定
+Server protocol revision 定义。发现非当前本地状态时 Client 必须零写入拒绝，不能猜测或转换。
 
 ## 2. 认识四层架构
 
@@ -46,7 +46,7 @@ Media Backup 解决的是“手机原始照片和视频可靠上传到自有服�
 
 ## 3. 准备开发环境
 
-基础服务端开发需要 Rust 与 Cargo：
+Rust Client 核心开发需要仓库固定的 Rust 与 Cargo：
 
 ```bash
 rustup show
@@ -58,37 +58,33 @@ Android 还需要 JDK、Android SDK API 36、NDK `28.2.13676358` 和 `cargo-ndk`
 Xcode、XcodeGen，以及 `aarch64-apple-ios`、`aarch64-apple-ios-sim` Rust target。具体构建命令见
 [运维文档](../operations.md)。
 
-不要把生产密码写进 `.env` 后提交。`config/media-backup.env.example` 只说明字段；生产配置位于源码树外。
+本仓库没有 Server `.env`。不要把授权码、设备 Token 或签名材料写入源码树。
 
 ## 4. 从代码入口开始阅读
 
 推荐顺序：
 
-1. `crates/protocol/src/lib.rs`：先看网络对象和版本字段。
-2. `crates/server/src/main.rs` 与 `routes.rs`：理解命令入口、移动 `/v2` 与浏览器 `/api/v2` 路由。
-3. `admin.rs`、`auth.rs`、`login_admission.rs`、`api_access.rs`、`metrics.rs`：理解 Administrator、device、
-   API Key 与 metrics 四条身份边界。
-4. `storage.rs`、`upload_commit.rs`、`rooted_fs.rs`：理解文件如何安全落盘。
-5. `client-core/src/database.rs`：理解移动队列和本地当前 Schema。
-6. Android 的 `BackupWorker.kt`、iOS 的 `BackupCoordinator.swift`：理解宿主调度。
-7. 两端 `RemoteLibrary`、相册扫描器与 UI：理解恢复和图库操作。
+1. `Cargo.toml`、`sarmg-client.toml` 与三个 crate manifest：理解版本和依赖边界。
+2. `crates/client-core/src/lib.rs` 与 `database.rs`：理解移动队列和本地当前 Schema。
+3. `crates/crypto/src/lib.rs`：理解分块、BLAKE3 和恢复校验 helper。
+4. `crates/mobile-ffi/src/lib.rs`、`android.rs` 与生成 Header：理解 ABI/JNI 边界。
+5. Android 的 `BackupWorker.kt`、iOS 的 `BackupCoordinator.swift`：理解宿主调度。
+6. 两端 `RemoteLibrary`、相册扫描器与 UI：理解恢复和图库操作。
 
-## 5. 完成一次开发启动
+协议 crate、Server handler、管理认证和对象存储源码位于独立 Server 仓库；只有需要跨仓库追踪请求时
+才沿 Cargo 中固定的 Git revision 阅读对应源码。
 
-仅本机开发允许关闭 HTTPS 强制，并且必须显式满足 `DEVELOPMENT=true` 与回环 `BIND`。先复制
-`config/media-backup.env.example` 中需要的值到终端环境，再运行未绑定源码 revision 的开发二进制：
+## 5. 完成一次客户端开发验证
 
-```bash
-cargo run -p media-backup-server -- serve
-```
-
-然后检查：
+本仓库不启动 Server。先验证 Rust 合同与核心状态机：
 
 ```bash
-curl --fail http://127.0.0.1:8080/healthz
+./scripts/check-mobile-v02-contract.sh
+cargo test --workspace --locked
 ```
 
-正式源码绑定二进制拒绝普通 `serve`，只能通过已验证发行树执行 `serve-release`。
+随后按平台构建 Android Debug 或 iOS Simulator 版本。真实配对需要另行部署与当前 protocol revision
+兼容的 Server，并在客户端填写经过证书验证、没有路径后缀的 HTTPS 根地址。
 
 ## 6. 理解一次上传
 
@@ -130,5 +126,5 @@ Schema、元数据指纹和所有新库测试，不在产品里添加 migration�
 - **CSRF**：浏览器 Cookie 会话的跨站请求伪造防护。
 - **FFI/JNI**：Rust 与 Swift/Kotlin 之间的调用边界。
 - **WAL**：SQLite Write-Ahead Log；数据库一致性副本必须考虑其 sidecar。
-- **epoch**：不兼容合约代，本项目移动端当前值为 `media-backup-mobile-v0.3-r1`。
+- **epoch**：不兼容合约代，本项目移动端当前值为 `media-backup-mobile-v0.4-r1`。
 - **fail closed**：无法证明输入安全或身份精确匹配时拒绝处理。

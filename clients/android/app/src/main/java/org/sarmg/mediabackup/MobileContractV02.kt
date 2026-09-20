@@ -37,7 +37,7 @@ object MobileContractV02 {
         val keys = mutableSetOf<String>()
         val iterator = envelope.keys()
         while (iterator.hasNext()) keys += iterator.next()
-        require(keys == allowed) { "Rust Client returned an unknown v0.2 envelope shape" }
+        require(keys == allowed) { "Rust Client returned an unknown current envelope shape" }
         require(envelope.getString("product") == PRODUCT) { "Rust Client product mismatch" }
         require(envelope.getString("application_version") == APPLICATION_VERSION) {
             "Rust Client application version mismatch"
@@ -45,7 +45,7 @@ object MobileContractV02 {
         require(envelope.getInt("revision") == REVISION) { "Rust Client revision mismatch" }
         require(envelope.getString("state_epoch") == STATE_EPOCH) { "Rust Client state epoch mismatch" }
         if (!envelope.getBoolean("ok")) {
-            error(envelope.optString("error", "Rust Client v0.2 operation failed"))
+            error(envelope.optString("error", "Rust Client operation failed"))
         }
         return envelope
     }

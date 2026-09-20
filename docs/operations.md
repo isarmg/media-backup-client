@@ -13,7 +13,7 @@ systemd、Caddy 和 Server 数据目录不属于本仓库；服务端部署请�
 - 授权码、设备 Token 与账户标识是客户端秘密；Android 存入应用私有配置，iOS 存入 Keychain。日志、
   命令参数和诊断输出不得包含这些值。
 - 本地 SQLite、prepared parts 和系统照片库共同构成待传状态。不要手改数据库，也不要递归删除
-  `backup-staging-v0.3-r1/prepared/` 来处理单个失败任务。
+  `backup-staging-v0.4-r1/` 来处理单个失败任务。
 
 ## 2. 通用 Rust、合同与 FFI 验证
 
@@ -101,8 +101,10 @@ iOS 依赖 PhotoKit 的完整或有限照片权限，并用 BGProcessingTask/后
    通过清空全部应用状态规避。
 6. Server 返回的不同 account/device identity 会失败关闭；先核对实例与授权码，不要修改本地 SQLite。
 
-当前已知边界：`retry_wait` 到期可能重新准备源文件。若宿主在准备后删除了导出临时源，后续重试会报告
-源不存在；先保留 job ID、数据库行和对应 prepared 目录证据，再按单任务处理。
+`retry_wait` 到期时，只要 `prepared_json` 仍在，Rust 核心就直接复用已经落盘的分块；只有尚未完成过
+准备的任务才重新读取源文件。准备中途失败可能留下一个未被数据库引用的 generation 目录，后续成功
+准备会在同一 job 目录中回收旧 generation。排障时仍应先保留 job ID、数据库行和目录证据，避免手工
+清空整个 staging 破坏其他待传任务。
 
 ## 7. 发布检查
 

@@ -1,5 +1,9 @@
 # 第 9 章：部署、安全与生产运维
 
+本章的 Server 主机内容用于说明 Client 所连接系统的信任边界；具体版本、发行目录和命令以独立
+[media-backup-server](https://github.com/isarmg/media-backup-server) 文档为准。本仓库只发布 Android APK
+与未签名 iOS IPA，不包含 Linux Server 发行树。
+
 ## 生产信任边界
 
 Internet 只到 TLS reverse proxy；Axum 回环监听。Proxy、应用、SQLite、DATA_DIR 和移动 Secret 各自是
@@ -7,15 +11,12 @@ Internet 只到 TLS reverse proxy；Axum 回环监听。Proxy、应用、SQLite�
 
 ## 不可变发行
 
-正式归档由干净精确 tag 构建。binary 在打开配置/状态前验证自己的物理目录、source revision、target、
-API/Schema/mobile epoch/Web 和全部文件 Hash/mode。安装只创建缺失的 `releases/0.3.0`，不覆盖同版本，
-无 `current` symlink。
+Client 正式归档由干净精确 `v0.4.10` tag 构建。工作流先核对 tag、根 `VERSION`、Android versionName、
+iOS MARKETING_VERSION 与固定的 Rust 合同版本，再生成签名 APK、未签名 IPA、身份清单和校验和；已有
+GitHub Release 不会被覆盖。
 
-Server 的开发、测试和正式目标都只有 `x86_64-unknown-linux-gnu`。`sarmg-server-target=0.3.0` 在 crate
-编译期执行共享 compile gate，Server 自身 build.rs 再无条件核对 Cargo `TARGET`。CI 必须显式
-`--target`；build script 校验 x86_64 ELF；
-安装/启动脚本、`serve-release` 的内核 uname 检查和 systemd `ConditionArchitecture=x86-64` 都拒绝其他
-主机。移动端的 Android/iOS ARM target 不代表 Server 支持 ARM。
+Android 正式 APK 只包含 `arm64-v8a`；CI 模拟器构建可使用 `x86_64`，但不能进入正式 APK。iOS app 与
+Rust XCFramework 的最低部署目标均为 iOS 27。Server 的 Linux 目标限制不等于移动 ABI 限制。
 
 ## 权限
 

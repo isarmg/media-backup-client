@@ -5,7 +5,8 @@
 ```text
 Media Backup
 ├─ 开发
-│  ├─ 修改协议/服务端/移动端
+│  ├─ 修改 Rust 移动核心、FFI 或 Android/iOS 宿主
+│  ├─ 协议变化在独立 Server 仓库完成后更新精确 Git revision
 │  ├─ 运行契约、格式、Clippy、测试
 │  └─ CI 分别验证 Rust、Android、iOS 与发行归档
 ├─ 运行
@@ -21,9 +22,10 @@ Media Backup
    └─ 独立升级工具执行一致性备份、恢复或版本转换
 ```
 
-## 2. 服务启动流程
+## 2. 配套服务端流程（不在本仓库执行）
 
-正式启动按以下顺序失败关闭：
+以下步骤描述移动端依赖的系统边界，实际命令、配置和部署文件均位于
+[media-backup-server](https://github.com/isarmg/media-backup-server)，不能在本仓库执行：
 
 1. 启动脚本、systemd 和进程分别确认运行主机为 Linux x86_64。
 2. 确认命令是 `serve-release`，进程位于 manifest 声明的固定物理版本目录。
@@ -61,13 +63,12 @@ Media Backup
 Android 通过 MediaStore、iOS 通过 PhotoKit 读取用户授权范围。扫描结果经过相册选择/排除规则；Android
 达到本轮新资源上限时会关闭 `replace_members`，但 Android selected-media 与 iOS limited 权限当前都没有
 形成可传给 Server 的“可见集不完整”证明，仍可能移除不可见的相册成员关系。原始媒体和缩略图形成资源
-描述后，任务先写入 `client-v0.3-r1.sqlite`，staging 使用 `backup-staging-v0.3-r1`，然后才交给系统后台调度。
+描述后，任务先写入 `client-v0.4-r1.sqlite`，staging 使用 `backup-staging-v0.4-r1`，然后才交给系统后台调度。
 
-这里的“持久队列”不是无条件恢复保证。当前实现只会直接复用 `ready` 的 `prepared_json`；上传失败进入
-`retry_wait` 后，即使该 JSON 和分块仍在，到期取队列仍会重新读取源文件。若宿主在准备成功后按
-`remove_source_after_prepare` 删除了导出临时源，网络上传首次失败便可能在后续重试中持续报源文件不存在。
-此外，准备中途失败或进程在 `preparing` 且尚未保存 JSON 时留下的 job staging 目录不会被自动精确清理。
-排障时只能定位并保全单个 job 证据，不能删除整个 `prepared/`；这两项是当前未实现的可靠性保障。
+这里的“持久队列”不是无条件恢复保证。`ready` 与带 `prepared_json` 的到期 `retry_wait` 会直接复用
+已落盘分块；只有没有准备结果的任务才重新读取源文件。准备使用每次唯一的 generation 目录，成功将
+新结果持久化后回收同一 job 的旧 generation；若准备在持久化前失败，本轮未引用目录要等后续成功准备
+才能回收。排障时应定位并保全单个 job 证据，不能删除整个 `backup-staging-v0.4-r1/`。
 
 ## 5. 分块上传与提交
 
@@ -104,15 +105,12 @@ MediaStore/PhotoKit 写入系统照片库。当前 Android/iOS 宿主会检查 H
 ## 8. 发行流程
 
 ```text
-干净 checkout + 精确 v0.3.0 tag
-  -> 注入完整 Git revision 的 release build
-  -> 构造唯一发行目录
-  -> 写入严格 manifest
-  -> 真实二进制 verify-release
-  -> 打包 + SHA256SUMS
-  -> 解包部署测试与篡改负例
+干净 checkout + 精确 v0.4.10 tag
+  -> 校验 tag、VERSION、Android versionName 与 iOS MARKETING_VERSION
+  -> 运行 Rust、合同、供应链与移动平台测试
   -> Android 从受保护 Environment 取得全新 PKCS#12，assembleRelease
   -> apksigner 唯一 signer/固定指纹 + aapt2 application ID + arm64-v8a ABI 复验
+  -> 构建未签名 iOS IPA、校验和与身份清单
   -> GitHub Release（禁止覆盖既有资产）
 ```
 
@@ -126,35 +124,23 @@ Android 与 iOS 制品使用同一版本和移动 epoch；静态门禁发现的�
 完整 generation 与 `DATA_DIR`。操作结束后先离线验证，再启动当前版本并运行 `doctor`。不能只复制
 SQLite 主文件，也不能让产品自动猜测非当前状态。
 
-## 10. Foundation 与管理 Web 构建流程
+## 10. Foundation Client 依赖流程
 
 ```text
-Node 26.7.0 + clients/web/package-lock.json
-  -> npm ci 安装精确依赖
-  -> build 自动先运行 check:foundation
-       ├─ assertAdministratorWebToolchain 检查 Node/React/Vite/TypeScript/types
-       ├─ 检查 @sarmg/* 依赖来源与 lockfile
-       ├─ 检查 tokens/reset/accessibility 的 SHA-256
-       └─ 检查 React 根节点、data-sarmg-scope 与唯一当前入口
-  -> TypeScript strict typecheck
-  -> Vite 7 输出 dist/index.html + assets/admin.js + assets/admin.css
-  -> Rust Server 把这三个产物编译进二进制
-  -> release manifest 再绑定相同三个字节
+`sarmg-client.toml` 声明 Foundation platform generation 1、版本 0.7.1
+  -> `crates/mobile-ffi/Cargo.toml` 固定 `sarmg-mobile-ffi =0.7.1` 和完整 Git revision
+  -> Cargo.lock 固定完整依赖图
+  -> C/JNI 验收检查 ABI revision 2、长度边界、结果释放与 stale handle
+  -> Android/iOS 宿主启动时再次核对 ABI revision
 ```
 
-八个 `@sarmg/*` 包从 Foundation GitHub Release `v0.7.0` 的对应 `.tgz` URL 安装；lockfile 绑定
-实际归档的 `sha512` integrity，使独立 checkout/CI 不依赖同级目录。Rust crate 同时锁定版本 `=0.7.0`
-和完整 Git revision `77e7ad7af8e1bf62432bd6bdd8fa9aff54cb39d1`。开发命令只有：
+当前依赖的是 Foundation Client 的 `sarmg-mobile-ffi =0.7.1`，Git revision 为
+`30fac8e69c59b14eab46c23df97e51873c714cf7`。仓库没有管理 Web、npm 工作区或 Server Foundation 依赖。
+核心验证命令为：
 
 ```bash
-cd clients/web
-npm ci
-npm run check:foundation
-npm run build
+./scripts/check-mobile-v02-contract.sh
+./scripts/test-mobile-ffi-c.sh
+./scripts/test-mobile-ffi-jni.sh
+cargo test --workspace --locked
 ```
-
-`@sarmg/contracts` 拥有管理员 wire 类型，`@sarmg/http-client` 拥有严格 ErrorEnvelope/同源请求，
-`@sarmg/admin-web` 拥有认证状态机、React Hook 和 Vite/TS/toolchain 基线，`@sarmg/design-tokens` 拥有
-scoped reset/accessibility/tokens。产品只在 `src/api.ts` 保留备份业务响应 guard，在 `src/styles.css` 保留
-颜色、字体、卡片、布局和产品组件。生产浏览器不访问 Foundation 仓库、npm registry 或 CDN，也没有
-vendored CSS、并行入口或运行时 fallback。

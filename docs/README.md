@@ -10,6 +10,7 @@
 | 完整功能与取舍 | [feature-inventory-and-tradeoffs.md](feature-inventory-and-tradeoffs.md) | 产品、架构和维护人员 | 已实现什么、明确不做什么、为什么 |
 | 接口消费者边界 | [interface-consumers.md](interface-consumers.md) | 产品、客户端和 API 工具维护人员 | 哪些接口进入移动界面，哪些保留给账户自动化 |
 | 必要 README | [../README.md](../README.md) | 所有人 | 项目定位、入口、最短验证路径 |
+| Client 配置 | [configuration.md](configuration.md) | 设备用户和测试人员 | Android/iOS 安装、配对、备份偏好和首次验证 |
 | Client 运维 | [operations.md](operations.md) | 移动端测试、值班和发布人员 | Android/iOS 构建、权限、队列、配对、故障与发布边界 |
 
 阅读建议：初学者按表格从上到下阅读；处理线上问题时直接从运维文档的“故障定位顺序”开始；修改
