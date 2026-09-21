@@ -470,8 +470,8 @@ dependencies = [
 
 [[package]]
 name = "sarmg-client-fs-safety"
-version = "0.7.1"
-source = "git+https://github.com/isarmg/sarmg-foundation-client.git?rev=30fac8e69c59b14eab46c23df97e51873c714cf7#30fac8e69c59b14eab46c23df97e51873c714cf7"
+version = "0.9.14"
+source = "git+https://github.com/isarmg/sarmg-foundation-client.git?rev=8b8ea8517a3cf68e566f8230e87bae9ab40b4106#8b8ea8517a3cf68e566f8230e87bae9ab40b4106"
 dependencies = [
  "getrandom",
  "libc",
@@ -481,8 +481,8 @@ dependencies = [
 
 [[package]]
 name = "sarmg-mobile-ffi"
-version = "0.7.1"
-source = "git+https://github.com/isarmg/sarmg-foundation-client.git?rev=30fac8e69c59b14eab46c23df97e51873c714cf7#30fac8e69c59b14eab46c23df97e51873c714cf7"
+version = "0.9.14"
+source = "git+https://github.com/isarmg/sarmg-foundation-client.git?rev=8b8ea8517a3cf68e566f8230e87bae9ab40b4106#8b8ea8517a3cf68e566f8230e87bae9ab40b4106"
 dependencies = [
  "jni",
 ]

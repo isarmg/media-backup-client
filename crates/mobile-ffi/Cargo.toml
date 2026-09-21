@@ -12,7 +12,7 @@ crate-type = ["staticlib", "cdylib"]
 [dependencies]
 media-backup-client-core = { path = "../client-core" }
 serde_json.workspace = true
-sarmg-mobile-ffi = { git = "https://github.com/isarmg/sarmg-foundation-client.git", rev = "30fac8e69c59b14eab46c23df97e51873c714cf7", version = "=0.7.1" }
+sarmg-mobile-ffi = { git = "https://github.com/isarmg/sarmg-foundation-client.git", rev = "8b8ea8517a3cf68e566f8230e87bae9ab40b4106", version = "=0.9.14" }
 jni = { workspace = true, optional = true }
 
 [features]
@@ -20,9 +20,9 @@ jni-host-tests = ["dep:jni", "sarmg-mobile-ffi/jni"]
 
 [target.'cfg(target_os = "android")'.dependencies]
 jni.workspace = true
-sarmg-mobile-ffi = { git = "https://github.com/isarmg/sarmg-foundation-client.git", rev = "30fac8e69c59b14eab46c23df97e51873c714cf7", features = ["jni"], version = "=0.7.1" }
+sarmg-mobile-ffi = { git = "https://github.com/isarmg/sarmg-foundation-client.git", rev = "8b8ea8517a3cf68e566f8230e87bae9ab40b4106", features = ["jni"], version = "=0.9.14" }
 
 [dev-dependencies]
 jni.workspace = true
-sarmg-mobile-ffi = { git = "https://github.com/isarmg/sarmg-foundation-client.git", rev = "30fac8e69c59b14eab46c23df97e51873c714cf7", features = ["jni"], version = "=0.7.1" }
+sarmg-mobile-ffi = { git = "https://github.com/isarmg/sarmg-foundation-client.git", rev = "8b8ea8517a3cf68e566f8230e87bae9ab40b4106", features = ["jni"], version = "=0.9.14" }
 tempfile.workspace = true

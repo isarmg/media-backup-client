@@ -1,6 +1,6 @@
 # Media Backup Client
 
-Media Backup Client `0.4.11` 是 Media Backup 的 Android 与 iOS 应用。它读取用户授权的照片和视频，在本地维护上传队列，通过 HTTPS 备份到独立的 [Media Backup Server](https://github.com/isarmg/media-backup-server)，并提供本地图库与云端图库。
+Media Backup Client `0.4.12` 是 Media Backup 的 Android 与 iOS 应用。它读取用户授权的照片和视频，在本地维护上传队列，通过 HTTPS 备份到独立的 [Media Backup Server](https://github.com/isarmg/media-backup-server)，并提供本地图库与云端图库。
 
 仓库包含共享 Rust 核心、Android Kotlin/Compose 应用和 iOS SwiftUI 应用。Android 正式包为 arm64-v8a；iOS 最低部署目标为 27.0，仓库发布的 IPA 未签名，安装前需要使用自己的 Apple 身份签名。
 
