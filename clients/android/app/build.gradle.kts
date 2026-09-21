@@ -10,8 +10,8 @@ val emulatorTests = providers.gradleProperty("mediaBackupEmulatorTests").orNull 
 
 val semanticVersion = workspaceVersion.substringBefore('-').split('.').map(String::toInt)
 require(semanticVersion.size == 3) { "Workspace version must use major.minor.patch" }
-require(workspaceVersion == "0.4.10") {
-    "This release builds Media Backup Client 0.4.10"
+require(workspaceVersion == "0.4.11") {
+    "This release builds Media Backup Client 0.4.11"
 }
 
 val releasePkcs12Path = providers

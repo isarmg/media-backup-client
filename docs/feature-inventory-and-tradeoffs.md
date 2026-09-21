@@ -1,6 +1,6 @@
 # Media Backup 完整功能与取舍清单
 
-本文以 Media Backup Client `0.4.10` 当前工作树为主，盘点 Rust Client、Android、iOS，并保留与独立
+本文以 Media Backup Client `0.4.11` 当前工作树为主，盘点 Rust Client、Android、iOS，并保留与独立
 Server、React 管理 Web交互的系统边界。Server 路径均指
 [media-backup-server](https://github.com/isarmg/media-backup-server)，不是本仓库内的可执行源码。
 清单覆盖协议、存储和交付闭包。各仓库代码、当前 Schema、移动 epoch、FFI header 和发行工作流是最终
@@ -47,7 +47,7 @@ React 管理页、配置与 systemd、发行 identity/manifest、CI/脚本、正
 | MED-P-001 | Android/iOS 把授权范围内的照片、视频和设备生成缩略图备份到自托管 Server | `clients/android`、`clients/ios`、Server 仓库 | 核心 | 高 | 项目不再是完整移动媒体备份系统 | 两平台至少一条原始媒体+缩略图端到端 |
 | MED-P-002 | Server 唯一支持 `x86_64-unknown-linux-gnu`，正式主机唯一为 Linux AMD64 | `sarmg-server-target`、server `build.rs`、release/systemd/scripts | 保障 | 高 | 会产生未经验证的 Server 平台制品 | 非目标编译、错误 ELF、错误 uname、systemd architecture |
 | MED-P-003 | Android/iOS 客户端继续按各自平台架构构建；“Server 仅 AMD64”不限制移动 ABI | Android NDK targets、Apple targets | 核心 | 高 | 若误删移动架构，真机无法加载 Rust core | arm64 Android/iOS；模拟器；ABI/header 一致 |
-| MED-P-004 | Client 发行号为 `0.4.10`；持久合同只接受应用版本 `0.4.0`、revision 1 与 `media-backup-mobile-v0.4-r1` | `VERSION`、Client constants、release identity | 保障 | 高 | 把发行号误作状态版本会意外破坏现有队列 | 非当前 product/version/revision/epoch 零写入拒绝 |
+| MED-P-004 | Client 发行号为 `0.4.11`；持久合同只接受应用版本 `0.4.0`、revision 1 与 `media-backup-mobile-v0.4-r1` | `VERSION`、Client constants、release identity | 保障 | 高 | 把发行号误作状态版本会意外破坏现有队列 | 非当前 product/version/revision/epoch 零写入拒绝 |
 | MED-P-005 | 产品不内置迁移、备份或恢复数据库命令；代际任务属于 `sarmg-upgrade` | Server CLI、Client open path | 保障 | 高 | 在线转换会把未知状态带入服务进程 | CLI 清单；Schema mismatch 只读失败 |
 | MED-P-006 | 本仓库的移动宿主位于 `clients/`、共享核心位于 `crates/`；Server 的 `config/` 与 `deploy/` 只存在于独立仓库 | 仓库目录 | 开发运维 | 低 | 跨仓库事实源被误作本地路径 | README、脚本和 CI 不调用缺失目录 |
 | MED-P-007 | 本仓库只包含 Android/iOS；React/Vite 管理客户端位于独立 Server 仓库 | 目录结构、仓库边界文档 | 开发运维 | 低 | 跨仓库命令和源码路径被混用 | README、CI、构建脚本只引用本仓库实际路径 |
