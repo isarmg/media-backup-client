@@ -10,6 +10,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -20,6 +22,7 @@ internal fun AccountDialog(context: Context, config: SecureConfig, onDismiss: ()
     val scope = rememberCoroutineScope()
     var server by remember { mutableStateOf(config.serverUrl) }
     var authorizationCode by remember { mutableStateOf(config.authorizationCode) }
+    var authorizationCodeVisible by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
     AlertDialog(
@@ -31,7 +34,14 @@ internal fun AccountDialog(context: Context, config: SecureConfig, onDismiss: ()
                 placeholder = { Text("https://backup.example.com") }, singleLine = true, enabled = !busy,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri), modifier = Modifier.fillMaxWidth())
             OutlinedTextField(authorizationCode, { authorizationCode = it }, label = { Text("实例授权码") }, singleLine = true,
-                enabled = !busy, modifier = Modifier.fillMaxWidth())
+                enabled = !busy, modifier = Modifier.fillMaxWidth(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
+                visualTransformation = if (authorizationCodeVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                trailingIcon = {
+                    TextButton(enabled = !busy, onClick = { authorizationCodeVisible = !authorizationCodeVisible }) {
+                        Text(if (authorizationCodeVisible) "隐藏授权码" else "显示授权码")
+                    }
+                })
             if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             if (error.isNotEmpty()) Text(error, color = MaterialTheme.colorScheme.error)
             Text("授权码仅保存在系统加密存储中；服务端更换授权码后需要重新配对。", style = MaterialTheme.typography.bodySmall)

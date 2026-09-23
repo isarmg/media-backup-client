@@ -20,6 +20,8 @@ curl -fsS -o /dev/null -w '%{http_code}\n' \
 
 健康检查只证明服务可达，不代表授权码有效或备份已完成。Server 地址必须是 HTTPS origin，例如 `https://backup.example.com`；不要填写 `/admin`、`/v2`、查询参数或片段。
 
+Android 与 iOS 的配对页面默认隐藏实例授权码，可使用“显示授权码 / 隐藏授权码”核对粘贴内容。重新打开配对页面时恢复隐藏状态；提交期间暂停编辑和显隐切换。授权码禁用自动更正，并由系统安全存储保存。
+
 ## 2. Android 安装与打开
 
 构建 Debug APK：

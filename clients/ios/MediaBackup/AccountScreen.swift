@@ -5,6 +5,7 @@ struct AccountScreen: View {
     @Environment(\.dismiss) private var dismiss
     @State private var server = ""
     @State private var authorizationCode = ""
+    @State private var authorizationCodeVisible = false
     @State private var busy = false
     @State private var message = ""
     var body: some View {
@@ -20,9 +21,22 @@ struct AccountScreen: View {
                     TextField("https://backup.example.com", text: $server)
                         .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
                         .accessibilityLabel("服务器地址").accessibilityIdentifier("account.server")
-                    SecureField("实例授权码", text: $authorizationCode).textContentType(.password)
-                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                    HStack {
+                        Group {
+                            if authorizationCodeVisible {
+                                TextField("实例授权码", text: $authorizationCode)
+                            } else {
+                                SecureField("实例授权码", text: $authorizationCode)
+                            }
+                        }
+                        .keyboardType(.asciiCapable).textInputAutocapitalization(.never).autocorrectionDisabled()
                         .accessibilityIdentifier("pairing.authorization-code")
+                        Button(authorizationCodeVisible ? "隐藏授权码" : "显示授权码") {
+                            authorizationCodeVisible.toggle()
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityIdentifier("pairing.authorization-code-visibility")
+                    }
                 }.disabled(busy)
                 Section {
                     Button {
