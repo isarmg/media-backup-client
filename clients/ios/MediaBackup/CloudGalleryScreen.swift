@@ -1,6 +1,11 @@
 import SwiftUI
 import UIKit
 
+private struct RemoteMonthGroup: Identifiable {
+    let id: Date
+    let assets: [RemoteAsset]
+}
+
 struct CloudGalleryScreen: View {
     @EnvironmentObject private var coordinator: BackupCoordinator
     @State private var selected: RemoteAsset?
@@ -9,6 +14,27 @@ struct CloudGalleryScreen: View {
     @State private var showDuplicates = false
     @State private var startDate = Date().addingTimeInterval(-30 * 86400)
     @State private var endDate = Date().addingTimeInterval(86400)
+    @AppStorage("gallery_grid_columns") private var gridColumns = 3
+    private var monthGroups: [RemoteMonthGroup] {
+        let calendar = Calendar.current
+        let grouped = Dictionary(grouping: coordinator.remoteAssets) { asset in
+            calendar.dateInterval(of: .month, for: Date(timeIntervalSince1970: Double(asset.sourceCreatedAtMs) / 1000))?.start ?? .distantPast
+        }
+        return grouped.keys.sorted(by: >).map { RemoteMonthGroup(id: $0, assets: grouped[$0] ?? []) }
+    }
+    private var hasFilters: Bool {
+        coordinator.favoritesOnly || coordinator.selectedRemoteAlbum != nil || coordinator.cloudFilters != CloudFilters()
+    }
+    private var emptyTitle: String {
+        if coordinator.libraryError != nil { return "云端图库加载失败" }
+        if coordinator.showingTrash { return "回收站为空" }
+        return hasFilters ? "没有符合条件的照片" : "云端还没有照片"
+    }
+    private var emptyMessage: String {
+        if let error = coordinator.libraryError { return error }
+        if coordinator.showingTrash { return "已移入回收站的媒体会显示在这里。" }
+        return hasFilters ? "清除筛选后查看全部云端媒体。" : "从本地图库选择照片，开始备份。"
+    }
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
@@ -20,6 +46,7 @@ struct CloudGalleryScreen: View {
                     } label: { Label(coordinator.favoritesOnly ? "已收藏" : "收藏", systemImage: coordinator.favoritesOnly ? "heart.fill" : "heart") }
                         .buttonStyle(.bordered)
                     Spacer()
+                    GalleryGridSizeControl(columns: $gridColumns)
                     Menu {
                         Button("刷新图库") { Task { await coordinator.refreshLibrary() } }
                         Button(coordinator.showingTrash ? "返回全部照片" : "打开回收站") {
@@ -33,33 +60,61 @@ struct CloudGalleryScreen: View {
                         .accessibilityLabel("图库选项")
                 }
                 if coordinator.showingTrash { Label("回收站", systemImage: "trash").font(.headline) }
-                Text(coordinator.status).font(.caption).foregroundStyle(.secondary)
+                HStack(alignment: .firstTextBaseline) {
+                    Text("已载入 \(coordinator.remoteAssets.count) 项\(coordinator.nextCursor == nil ? "" : "，可继续加载")")
+                        .font(.subheadline.weight(.medium))
+                    Spacer()
+                    if hasFilters { Button("清除筛选") { clearFilters() }.font(.subheadline) }
+                }
+                if !coordinator.status.isEmpty && !coordinator.status.hasPrefix("已加载 ") && (coordinator.libraryError == nil || !coordinator.remoteAssets.isEmpty) {
+                    Text(coordinator.status).font(.caption).foregroundStyle(.secondary)
+                }
                 if coordinator.libraryLoading { ProgressView().frame(maxWidth: .infinity) }
                 if coordinator.remoteAssets.isEmpty && !coordinator.libraryLoading {
-                    GalleryEmptyState(title: "没有找到照片", message: "下拉刷新或调整筛选条件，也可以先从本地图库备份照片。", icon: "cloud")
-                }
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 105), spacing: 4)], spacing: 12) {
-                    ForEach(coordinator.remoteAssets) { asset in
-                        Button { selected = asset } label: {
-                            VStack(alignment: .leading, spacing: 5) {
-                                Color.clear.aspectRatio(1, contentMode: .fit).overlay {
-                                    GeometryReader { proxy in
-                                        CloudImage(asset: asset, library: coordinator.library, profile: coordinator.profile, preview: false)
-                                            .frame(width: proxy.size.width, height: proxy.size.height).clipped()
-                                    }
-                                }.clipShape(RoundedRectangle(cornerRadius: 10))
-                                .overlay(alignment: .bottomLeading) {
-                                    if asset.mediaKind == "video" {
-                                        Image(systemName: "video.fill").font(.caption).foregroundStyle(.white)
-                                            .padding(6).background(.black.opacity(0.45), in: Capsule()).padding(6)
-                                    }
-                                }
-                                Text(Date(timeIntervalSince1970: Double(asset.sourceCreatedAtMs) / 1000), style: .date)
-                                    .font(.caption2).foregroundStyle(.secondary)
-                            }
-                        }.buttonStyle(.plain)
+                    GalleryEmptyState(title: emptyTitle, message: emptyMessage,
+                        icon: coordinator.libraryError == nil && coordinator.showingTrash ? "trash" : "cloud")
+                    if coordinator.libraryError != nil || coordinator.showingTrash || hasFilters {
+                        Button(coordinator.libraryError != nil ? "重试" : coordinator.showingTrash ? "返回全部照片" : "清除筛选") {
+                            if coordinator.libraryError != nil { Task { await coordinator.refreshLibrary() } }
+                            else { clearFilters(returnFromTrash: coordinator.showingTrash) }
+                        }.buttonStyle(.borderedProminent).frame(maxWidth: .infinity)
                     }
                 }
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 3), count: min(5, max(2, gridColumns))),
+                    spacing: 3, pinnedViews: [.sectionHeaders]) {
+                    ForEach(monthGroups) { group in
+                        Section {
+                            ForEach(group.assets) { asset in
+                                Button { selected = asset } label: {
+                                    Color.clear.aspectRatio(1, contentMode: .fit).overlay {
+                                        GeometryReader { proxy in
+                                            CloudImage(asset: asset, library: coordinator.library, profile: coordinator.profile, preview: false)
+                                                .frame(width: proxy.size.width, height: proxy.size.height).clipped()
+                                        }
+                                    }
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                                    .overlay(alignment: .bottomLeading) {
+                                        if asset.mediaKind == "video" {
+                                            Image(systemName: "video.fill").font(.caption).foregroundStyle(.white)
+                                                .padding(6).background(.black.opacity(0.55), in: Capsule()).padding(5)
+                                        }
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("\(asset.mediaKind == "video" ? "视频" : "照片")，\(asset.primary?.filename ?? "未命名媒体")")
+                            }
+                        } header: {
+                            Text(group.id.formatted(.dateTime.year().month(.wide)))
+                                .font(.subheadline.bold()).frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.vertical, 10).background(Color(uiColor: .systemBackground))
+                        }
+                    }
+                }
+                .simultaneousGesture(MagnifyGesture().onEnded { value in
+                    let scale = value.magnification
+                    if scale > 1.18 { gridColumns = max(2, gridColumns - 1) }
+                    else if scale < 0.85 { gridColumns = min(5, gridColumns + 1) }
+                })
                 if coordinator.nextCursor != nil {
                     Button("加载更多") { Task { await coordinator.loadLibraryPage() } }
                         .disabled(coordinator.libraryLoading).frame(maxWidth: .infinity)
@@ -102,10 +157,17 @@ struct CloudGalleryScreen: View {
         }
         .onChange(of: coordinator.cloudFilters) { _, _ in Task { await coordinator.refreshLibrary() } }
         .onChange(of: dateFilter) { _, enabled in if !enabled { coordinator.cloudFilters.from = nil; coordinator.cloudFilters.to = nil } }
-        .sheet(item: $selected) { asset in
+        .fullScreenCover(item: $selected) { asset in
             PhotoViewerScreen(initial: asset).environmentObject(coordinator)
         }
         .onChange(of: coordinator.profile) { _, _ in selected = nil }
+    }
+    private func clearFilters(returnFromTrash: Bool = false) {
+        coordinator.favoritesOnly = false
+        coordinator.selectedRemoteAlbum = nil
+        coordinator.cloudFilters = CloudFilters()
+        dateFilter = false
+        Task { await coordinator.refreshLibrary(trashed: returnFromTrash ? false : nil) }
     }
     private var filterControls: some View {
         Group {
@@ -143,14 +205,16 @@ struct CloudImage: View {
     let library: RemoteLibrary?
     let profile: String
     let preview: Bool
+    var onTap: (() -> Void)? = nil
     @State private var image: UIImage?
     @State private var message = "暂无预览"
     var body: some View {
         Group {
             if let image {
-                if preview { ZoomablePhoto(image: image) }
+                if preview { ZoomablePhoto(image: image, onTap: onTap) }
                 else { Image(uiImage: image).resizable().scaledToFill() }
-            } else { Text(message).frame(maxWidth: .infinity, minHeight: 90).background(.quaternary) }
+            } else if preview { Color.black.onTapGesture { onTap?() } }
+            else { Text(message).frame(maxWidth: .infinity, minHeight: 90).background(.quaternary) }
         }
         .task(id: "\(profile)-\(asset.id)-\(preview)") {
             image = nil
@@ -177,69 +241,77 @@ struct PhotoViewerScreen: View {
     @State private var confirmingDelete = false
     private var current: RemoteAsset? { coordinator.remoteAssets.first { $0.id == (selected ?? initial.id) } }
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 8) {
-                TabView(selection: $selected) {
-                    ForEach(coordinator.remoteAssets) { asset in
-                        Group {
-                            if asset.mediaKind == "video", let library = coordinator.library, let primary = asset.primary {
+        ZStack {
+            Color.black.ignoresSafeArea().onTapGesture { dismiss() }
+            TabView(selection: $selected) {
+                ForEach(coordinator.remoteAssets) { asset in
+                    Group {
+                        if asset.mediaKind == "video", let library = coordinator.library, let primary = asset.primary {
+                            ZStack(alignment: .top) {
                                 CloudVideo(library: library, resource: primary, active: (selected ?? initial.id) == asset.id)
-                            } else { CloudImage(asset: asset, library: coordinator.library, profile: coordinator.profile, preview: true) }
-                        }.tag(Optional(asset.id))
-                    }
-                }.tabViewStyle(.page)
-                Text("双指缩放 · 左右切换").font(.caption).foregroundStyle(.secondary)
-                Text(coordinator.status).font(.caption).foregroundStyle(.secondary).lineLimit(2).padding(.horizontal)
-            }.padding(.bottom)
-            .navigationTitle("照片预览").navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } }
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    if let asset = current {
-                        Button { Task { await coordinator.restoreToPhone(asset) } } label: {
-                            Image(systemName: "square.and.arrow.down")
-                        }.accessibilityLabel("保存到手机")
-                        Menu {
-                            Button(asset.favorite ? "取消收藏" : "收藏") { Task { await coordinator.toggleFavorite(asset); dismiss() } }
-                            Button(asset.archived ? "取消归档" : "归档") { Task { await coordinator.toggleArchived(asset); dismiss() } }
-                            Button("添加标签") { coordinator.newTagName = ""; addingTag = true }
-                            ForEach(asset.tagNames, id: \.self) { name in
-                                Button("移除标签：\(name)") { Task { await coordinator.removeTag(name, from: asset); dismiss() } }
+                                HStack {
+                                    Button("关闭") { dismiss() }
+                                    Spacer()
+                                    Menu { assetActions(asset) } label: { Image(systemName: "ellipsis.circle") }
+                                        .accessibilityLabel("视频操作")
+                                }
+                                .foregroundStyle(.white).padding()
                             }
-                            Button(asset.isTrashed ? "恢复照片" : "移入回收站") { Task { await coordinator.toggleTrash(asset); dismiss() } }
-                            if asset.isTrashed {
-                                Button("永久删除", role: .destructive) { confirmingDelete = true }
-                            }
-                        } label: { Image(systemName: "ellipsis.circle") }.accessibilityLabel("照片操作")
+                        } else {
+                            CloudImage(asset: asset, library: coordinator.library, profile: coordinator.profile,
+                                preview: true, onTap: { dismiss() })
+                                .accessibilityLabel("照片预览")
+                                .accessibilityAction(named: "关闭照片") { dismiss() }
+                                .contextMenu { assetActions(asset) }
+                        }
                     }
+                    .tag(Optional(asset.id))
                 }
             }
-            .alert("添加标签", isPresented: $addingTag) {
-                TextField("标签名称", text: $coordinator.newTagName)
-                Button("取消", role: .cancel) {}
-                Button("添加") { if let asset = current { Task { await coordinator.addTag(asset); dismiss() } } }
-                    .disabled(coordinator.newTagName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .tabViewStyle(.page(indexDisplayMode: .never))
+        }
+        .statusBarHidden()
+        .persistentSystemOverlays(.hidden)
+        .alert("添加标签", isPresented: $addingTag) {
+            TextField("标签名称", text: $coordinator.newTagName)
+            Button("取消", role: .cancel) {}
+            Button("添加") { if let asset = current { Task { await coordinator.addTag(asset); dismiss() } } }
+                .disabled(coordinator.newTagName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+        .confirmationDialog("永久删除照片？", isPresented: $confirmingDelete, titleVisibility: .visible) {
+            Button("永久删除", role: .destructive) {
+                if let asset = current { Task { await coordinator.deletePermanently(asset); dismiss() } }
             }
-            .confirmationDialog("永久删除照片？", isPresented: $confirmingDelete, titleVisibility: .visible) {
-                Button("永久删除", role: .destructive) {
-                    if let asset = current { Task { await coordinator.deletePermanently(asset); dismiss() } }
-                }
-                Button("取消", role: .cancel) {}
-            } message: {
-                Text("此操作无法撤销。服务器可能在后台继续回收未引用的文件。")
-            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("此操作无法撤销。服务器可能在后台继续回收未引用的文件。")
         }.onAppear { selected = initial.id }
     }
-
+    @ViewBuilder private func assetActions(_ asset: RemoteAsset) -> some View {
+        Button("保存到手机") { Task { await coordinator.restoreToPhone(asset) } }
+        Button(asset.favorite ? "取消收藏" : "收藏") { Task { await coordinator.toggleFavorite(asset); dismiss() } }
+        Button(asset.archived ? "取消归档" : "归档") { Task { await coordinator.toggleArchived(asset); dismiss() } }
+        Button("添加标签") { coordinator.newTagName = ""; addingTag = true }
+        ForEach(asset.tagNames, id: \.self) { name in
+            Button("移除标签：\(name)") { Task { await coordinator.removeTag(name, from: asset); dismiss() } }
+        }
+        Button(asset.isTrashed ? "恢复照片" : "移入回收站") { Task { await coordinator.toggleTrash(asset); dismiss() } }
+        if asset.isTrashed { Button("永久删除", role: .destructive) { confirmingDelete = true } }
+    }
 }
 
 struct ZoomablePhoto: UIViewRepresentable {
     let image: UIImage
-    func makeCoordinator() -> Delegate { Delegate() }
+    var onTap: (() -> Void)? = nil
+    func makeCoordinator() -> Delegate { Delegate(onTap: onTap) }
     func makeUIView(context: Context) -> UIScrollView {
         let view = UIScrollView()
         view.minimumZoomScale = 1; view.maximumZoomScale = 5
         view.delegate = context.coordinator
+        view.backgroundColor = .black
+        let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Delegate.handleTap))
+        tap.cancelsTouchesInView = false
+        view.addGestureRecognizer(tap)
         let imageView = UIImageView(image: image)
         imageView.contentMode = .scaleAspectFit
         imageView.translatesAutoresizingMaskIntoConstraints = false
@@ -255,9 +327,15 @@ struct ZoomablePhoto: UIViewRepresentable {
         context.coordinator.imageView = imageView
         return view
     }
-    func updateUIView(_ view: UIScrollView, context: Context) { context.coordinator.imageView?.image = image }
+    func updateUIView(_ view: UIScrollView, context: Context) {
+        context.coordinator.imageView?.image = image
+        context.coordinator.onTap = onTap
+    }
     final class Delegate: NSObject, UIScrollViewDelegate {
         var imageView: UIImageView?
+        var onTap: (() -> Void)?
+        init(onTap: (() -> Void)?) { self.onTap = onTap }
+        @objc func handleTap() { onTap?() }
         func viewForZooming(in scrollView: UIScrollView) -> UIView? { imageView }
     }
 }

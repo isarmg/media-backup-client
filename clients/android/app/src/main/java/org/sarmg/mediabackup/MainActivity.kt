@@ -41,7 +41,9 @@ private fun AppNavigation(context: Context) {
     var accountRevision by remember { mutableIntStateOf(0) }
     Scaffold(topBar = {
         TopAppBar(title = { Text(listOf("本地图库", "云端图库", "传输", "设置")[tab]) },
-            actions = { TextButton(onClick = { account = true }) { Text("登录 / 账户") } })
+            actions = { TextButton(onClick = { account = true }) {
+                Text(if (config.serverUrl.isBlank() || config.authorizationCode.isBlank()) "配对" else "账户")
+            } })
     }, bottomBar = {
         NavigationBar {
             listOf("本地", "云端", "传输", "设置").forEachIndexed { index, title ->
@@ -87,6 +89,8 @@ private fun SettingsScreen(context: Context, config: SecureConfig, onLogin: () -
     var selected by remember { mutableStateOf(config.selectedAlbumIds) }
     var notice by remember { mutableStateOf("") }
     var cacheLimit by remember { mutableIntStateOf(RemoteImageCache.limit(context)) }
+    val preferencesChanged = auto != config.autoBackup || wifi != config.wifiOnly || charging != config.chargingOnly ||
+        photos != config.backupPhotos || videos != config.backupVideos || camera != config.cameraOnly || selected != config.selectedAlbumIds
     fun loadAlbums() { scope.launch { albums = withContext(Dispatchers.IO) { DeviceAlbums.list(context) } } }
     val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { loadAlbums() }
     LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -129,6 +133,8 @@ private fun SettingsScreen(context: Context, config: SecureConfig, onLogin: () -
                     notice = "备份偏好已保存"
                 } catch (e: Exception) { notice = e.message ?: "设置无效" }
             }) { Text("保存备份偏好") }
+            if (preferencesChanged) Text("备份偏好已修改，保存后生效。", style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary)
             if (notice.isNotEmpty()) Text(notice, style = MaterialTheme.typography.bodySmall)
         }
         item { HorizontalDivider() }

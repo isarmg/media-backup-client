@@ -19,6 +19,7 @@ internal fun TransfersScreen(context: Context, config: SecureConfig, profile: St
     val downloads by DownloadTransfers.rows.collectAsState()
     var batches by remember { mutableStateOf<List<Pair<JSONObject, List<JSONObject>>>>(emptyList()) }
     var notice by remember { mutableStateOf("") }
+    var actionError by remember { mutableStateOf("") }
     LaunchedEffect(profile) {
         while (true) {
             try {
@@ -38,14 +39,33 @@ internal fun TransfersScreen(context: Context, config: SecureConfig, profile: St
     }
     LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
-            Text(notice)
-            Text("等待 Wi-Fi、充电或系统调度时会保留批次。取消批次不会删除云端副本。", style = MaterialTheme.typography.bodySmall)
-            TextButton(onClick = { BackupScheduler.enqueueNow(context, config) }) { Text("继续待处理任务") }
+            ElevatedCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("传输概览", style = MaterialTheme.typography.titleMedium)
+                    if (notice.isNotBlank()) Text(notice, style = MaterialTheme.typography.bodyMedium)
+                    if (actionError.isNotBlank()) Text(actionError, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    Text("等待 Wi-Fi、充电或系统调度时会保留批次。取消批次不会删除云端副本。", style = MaterialTheme.typography.bodySmall)
+                    Button(onClick = { BackupScheduler.enqueueNow(context, config) }, enabled = config.authorizationCode.isNotBlank()) {
+                        Text("继续待处理任务")
+                    }
+                }
+            }
         }
         item { Text("下载", style = MaterialTheme.typography.titleMedium) }
         if (downloads.none { it.profile == profile }) item { Text("暂无下载任务", style = MaterialTheme.typography.bodySmall) }
         downloads.filter { it.profile == profile }.forEach { download ->
-            item(key = download.id) { Text("${download.name} · ${download.phase} · ${download.bytes / 1048576} / ${download.total / 1048576} MiB") }
+            item(key = download.id) {
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(download.name, style = MaterialTheme.typography.bodyMedium, maxLines = 2)
+                        Text("${download.phase} · ${download.bytes / 1048576} / ${download.total / 1048576} MiB",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (download.total > 0) LinearProgressIndicator(
+                            progress = { (download.bytes.toFloat() / download.total.toFloat()).coerceIn(0f, 1f) },
+                            modifier = Modifier.fillMaxWidth())
+                    }
+                }
+            }
         }
         item { Text("上传 · ${batches.size} 个批次", style = MaterialTheme.typography.titleMedium) }
         if (batches.isEmpty()) item { Text("在本地图库勾选照片，开始第一次备份。", style = MaterialTheme.typography.bodySmall) }
@@ -54,9 +74,10 @@ internal fun TransfersScreen(context: Context, config: SecureConfig, profile: St
                 var expanded by remember(batch.getString("id")) { mutableStateOf(false) }
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp)) {
-                        Text("所选批次：${batch.getInt("complete")} / ${batch.getInt("items")} 项完成")
+                        Text(if (batch.getBoolean("cancelled")) "已取消的批次" else "照片备份", style = MaterialTheme.typography.titleSmall)
+                        Text("${batch.getInt("complete")} / ${batch.getInt("items")} 项完成", style = MaterialTheme.typography.bodySmall)
                         if (batch.getBoolean("cancelled")) Text("已取消本次上传")
-                        LinearProgressIndicator(progress = { batch.getInt("complete").toFloat() / batch.getInt("items").coerceAtLeast(1) }, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp))
+                        LinearProgressIndicator(progress = { (batch.getInt("complete").toFloat() / batch.getInt("items").coerceAtLeast(1)).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp))
                         TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "收起详情" else "查看详情") }
                         if (expanded) for (item in items) {
                             val state = when {
@@ -71,12 +92,15 @@ internal fun TransfersScreen(context: Context, config: SecureConfig, profile: St
                         }
                         Row {
                             listOf("cancel_batch" to "取消本次上传", "retry_batch" to "重试批次").forEach { (op, title) ->
-                                TextButton(onClick = { scope.launch {
-                                    withContext(Dispatchers.IO) {
-                                        TransferStore.command(TransferStore.open(context, profile).handle, op,
-                                            JSONObject().put("batch_id", batch.getString("id")))
-                                    }
-                                    if (op == "retry_batch") BackupScheduler.enqueueNow(context, config)
+                                TextButton(enabled = op != "cancel_batch" || !batch.getBoolean("cancelled"), onClick = { scope.launch {
+                                    try {
+                                        withContext(Dispatchers.IO) {
+                                            TransferStore.command(TransferStore.open(context, profile).handle, op,
+                                                JSONObject().put("batch_id", batch.getString("id")))
+                                        }
+                                        actionError = ""
+                                        if (op == "retry_batch") BackupScheduler.enqueueNow(context, config)
+                                    } catch (e: Exception) { actionError = e.message ?: "操作失败" }
                                 } }) { Text(title) }
                             }
                         }

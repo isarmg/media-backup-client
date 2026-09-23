@@ -10,6 +10,10 @@ final class NavigationTests: XCTestCase {
         XCTAssertTrue(account.waitForExistence(timeout: 15))
         screenshot("local-gallery-loading")
         print(app.debugDescription)
+        let selectMode = app.buttons["gallery.select"]
+        XCTAssertTrue(selectMode.waitForExistence(timeout: 30))
+        XCTAssertFalse(app.buttons["media.select.layout-photo-1.png"].exists)
+        selectMode.tap()
         let selection = app.buttons["media.select.layout-photo-1.png"]
         XCTAssertTrue(selection.waitForExistence(timeout: 30), app.debugDescription)
         let tile = app.descendants(matching: .any).matching(identifier: "media.tile.layout-photo-1.png").firstMatch
@@ -21,6 +25,7 @@ final class NavigationTests: XCTestCase {
         XCTAssertTrue(account.isHittable)
         screenshot("local-gallery-selected")
         selection.tap()
+        app.buttons["取消"].tap()
         screenshot("local-gallery")
         account.tap()
         XCTAssertTrue(app.textFields["account.server"].waitForExistence(timeout: 5))

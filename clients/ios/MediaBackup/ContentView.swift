@@ -67,9 +67,15 @@ struct ContentView: View {
     }
     @ToolbarContentBuilder private var accountToolbar: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
-            Button(coordinator.authorizationCode.isEmpty ? "配对" : "实例") { account = true }
+            Button(coordinator.authorizationCode.isEmpty || coordinator.serverURL.isEmpty ? "配对" : "账户") { account = true }
                 .accessibilityIdentifier("account.open")
         }
+    }
+    private var backupPreferencesChanged: Bool {
+        let preferences = MobileContractV02.preferences
+        return coordinator.autoBackup != preferences.bool(forKey: "auto_backup")
+            || coordinator.wifiOnly != ((preferences.object(forKey: "wifi_only") as? Bool) ?? true)
+            || coordinator.chargingOnly != preferences.bool(forKey: "charging_only")
     }
     private func selectionConfirmation(_ selection: [PHPickerResult]) -> some View {
         let selectedVideos = selection.filter { $0.itemProvider.hasItemConformingToTypeIdentifier(UTType.movie.identifier) }.count
@@ -173,6 +179,10 @@ struct ContentView: View {
                 Toggle("自动备份", isOn: $coordinator.autoBackup)
                 Toggle("仅 Wi-Fi 上传", isOn: $coordinator.wifiOnly)
                 Toggle("后台仅充电时运行", isOn: $coordinator.chargingOnly)
+                if backupPreferencesChanged {
+                    Label("备份偏好已修改，保存后生效。", systemImage: "info.circle")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
                 Button("保存备份偏好") { coordinator.saveSettings() }
             }
             Section {

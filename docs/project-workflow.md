@@ -105,7 +105,7 @@ MediaStore/PhotoKit 写入系统照片库。当前 Android/iOS 宿主会检查 H
 ## 8. 发行流程
 
 ```text
-干净 checkout + 精确 v0.4.13 tag
+干净 checkout + 精确 v0.4.14 tag
   -> 校验 tag、VERSION、Android versionName 与 iOS MARKETING_VERSION
   -> 运行 Rust、合同、供应链与移动平台测试
   -> Android 从受保护 Environment 取得全新 PKCS#12，assembleRelease

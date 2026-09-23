@@ -32,3 +32,19 @@ struct GalleryEmptyState: View {
         }.frame(maxWidth: .infinity).padding(32)
     }
 }
+
+struct GalleryGridSizeControl: View {
+    @Binding var columns: Int
+    var body: some View {
+        Menu {
+            Button("放大缩略图") { columns = max(2, columns - 1) }
+                .disabled(columns <= 2)
+            Button("缩小缩略图") { columns = min(5, columns + 1) }
+                .disabled(columns >= 5)
+        } label: {
+            Image(systemName: "square.grid.3x3")
+                .frame(width: 44, height: 44)
+        }
+        .accessibilityLabel("调整缩略图大小")
+    }
+}

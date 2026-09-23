@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
@@ -35,8 +36,9 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import org.json.JSONObject
-import java.text.SimpleDateFormat
-import java.util.Date
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -45,6 +47,8 @@ internal fun LocalGalleryScreen(context: Context, config: SecureConfig, profile:
     val scope = rememberCoroutineScope()
     var rows by remember(profile) { mutableStateOf<List<JSONObject>>(emptyList()) }
     var selection by remember(profile) { mutableStateOf<Map<String, JSONObject>>(emptyMap()) }
+    var selecting by remember(profile) { mutableStateOf(false) }
+    var gridColumns by rememberSaveable(profile) { mutableIntStateOf(3) }
     var albums by remember(profile) { mutableStateOf<Map<String, String>>(emptyMap()) }
     var album by remember(profile) { mutableStateOf<String?>(null) }
     var kind by remember(profile) { mutableStateOf<String?>(null) }
@@ -55,21 +59,38 @@ internal fun LocalGalleryScreen(context: Context, config: SecureConfig, profile:
     var systemPicker by remember { mutableStateOf(false) }
     var preview by remember { mutableStateOf<JSONObject?>(null) }
     var menu by remember { mutableStateOf(false) }
+    var kindMenu by remember { mutableStateOf(false) }
     var actions by remember { mutableStateOf(false) }
+    var gridMenu by remember { mutableStateOf(false) }
     var more by remember { mutableStateOf(false) }
-    val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) }
-    fun date(row: JSONObject) = dateFormat.format(Date(row.getLong("created_ms")))
+    var queuedRefresh by remember { mutableStateOf(false) }
+    var queuedScan by remember { mutableStateOf(false) }
+    val hasFilters = album != null || kind != null || unbacked
+    val needsPairing = config.serverUrl.isBlank() || config.authorizationCode.isBlank()
+    val dateFormat = remember { DateTimeFormatter.ofPattern("yyyy-MM-dd", Locale.getDefault()) }
+    fun date(row: JSONObject) = Instant.ofEpochMilli(row.getLong("created_ms"))
+        .atZone(ZoneId.systemDefault()).toLocalDate().format(dateFormat)
     fun load(scan: Boolean = false, append: Boolean = false) {
-        if (busy) return
+        if (busy) {
+            if (!append) { queuedRefresh = true; queuedScan = queuedScan || scan }
+            return
+        }
         busy = true
         scope.launch {
             try {
                 val h = withContext(Dispatchers.IO) { TransferStore.open(context, profile).handle }
-                if (scan) { access = LocalCatalog.access(context); albums = withContext(Dispatchers.IO) { LocalCatalog.scan(context, h) }; selection = emptyMap() }
+                if (scan) { access = LocalCatalog.access(context); albums = withContext(Dispatchers.IO) { LocalCatalog.scan(context, h) } }
                 val offset = if (append) rows.size else 0
                 val page = withContext(Dispatchers.IO) { LocalCatalog.page(h, album, kind, unbacked, offset) }
-                rows = if (append) rows + page else page; more = page.size == 150
-            } catch (e: Exception) { notice = e.message ?: "图库读取失败" } finally { busy = false }
+                rows = if (append) rows + page else page; more = page.size == 150; notice = ""
+            } catch (e: Exception) { notice = e.message ?: "图库读取失败" } finally {
+                busy = false
+                if (queuedRefresh) {
+                    val pendingScan = queuedScan
+                    queuedRefresh = false; queuedScan = false
+                    load(scan = pendingScan)
+                }
+            }
         }
     }
     fun selectScope(day: String? = null) { if (!busy) scope.launch {
@@ -83,7 +104,14 @@ internal fun LocalGalleryScreen(context: Context, config: SecureConfig, profile:
                 } while (page.size == 1000) }
             }
             selection = selection + chosen.associateBy { it.getString("source_id") }
-        } catch (e: Exception) { notice = e.message ?: "选择失败" } finally { busy = false }
+        } catch (e: Exception) { notice = e.message ?: "选择失败" } finally {
+            busy = false
+            if (queuedRefresh) {
+                val pendingScan = queuedScan
+                queuedRefresh = false; queuedScan = false
+                load(scan = pendingScan)
+            }
+        }
     } }
     fun toggle(row: JSONObject) { val id = row.getString("source_id"); selection = if (id in selection) selection - id else selection + (id to row) }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { load(scan = true) }
@@ -94,79 +122,129 @@ internal fun LocalGalleryScreen(context: Context, config: SecureConfig, profile:
     }
     LaunchedEffect(profile) { load(scan = true) }
     Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            TextButton(onClick = { selectScope() }, enabled = !busy) { Text("全选筛选结果") }
-            Box {
-                FilledTonalButton(onClick = { actions = true }) { Text("添加照片") }
-                DropdownMenu(actions, { actions = false }) {
-                    DropdownMenuItem(text = { Text("从系统照片选择") }, onClick = { actions = false; systemPicker = true })
-                    DropdownMenuItem(text = { Text("授权 / 调整照片范围") }, onClick = { actions = false; permission.launch(LocalCatalog.permissions()) })
-                    DropdownMenuItem(text = { Text("刷新图库") }, onClick = { actions = false; load(true) })
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            if (selecting) {
+                TextButton(onClick = { selection = emptyMap(); selecting = false }) { Text("取消") }
+                TextButton(onClick = { selectScope() }, enabled = !busy) { Text("全选") }
+            } else {
+                TextButton(onClick = { selecting = true }) { Text("选择") }
+                Spacer(Modifier.weight(1f))
+                Box {
+                    TextButton(onClick = { gridMenu = true }) { Text("视图") }
+                    DropdownMenu(gridMenu, { gridMenu = false }) {
+                        DropdownMenuItem(text = { Text("放大缩略图") }, enabled = gridColumns > 2,
+                            onClick = { gridColumns--; gridMenu = false })
+                        DropdownMenuItem(text = { Text("缩小缩略图") }, enabled = gridColumns < 5,
+                            onClick = { gridColumns++; gridMenu = false })
+                    }
+                }
+                Box {
+                    FilledTonalButton(onClick = { actions = true }) { Text("添加") }
+                    DropdownMenu(actions, { actions = false }) {
+                        DropdownMenuItem(text = { Text("从系统照片选择") }, onClick = { actions = false; systemPicker = true })
+                        DropdownMenuItem(text = { Text("授权 / 调整照片范围") }, onClick = { actions = false; permission.launch(LocalCatalog.permissions()) })
+                        DropdownMenuItem(text = { Text("刷新图库") }, onClick = { actions = false; load(true) })
+                    }
                 }
             }
         }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text("已载入 ${rows.size} 项${if (more) " · 可继续加载" else ""}", style = MaterialTheme.typography.bodyMedium)
+            if (hasFilters) TextButton(onClick = { album = null; kind = null; unbacked = false; load() }) { Text("清除筛选") }
+        }
         Text(access, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Row(Modifier.horizontalScroll(rememberScrollState())) {
+        if (rows.isNotEmpty()) Text("角标：✓ 已备份 · ↑ 传输中 · ! 需处理", style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (notice.isNotEmpty()) Text(notice, style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error)
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Box { TextButton(enabled = !busy, onClick = { menu = true }) { Text(albums[album] ?: "全部相册") }
                 DropdownMenu(menu, { menu = false }) {
                     DropdownMenuItem(text = { Text("全部相册") }, onClick = { album = null; menu = false; load() })
                     albums.forEach { (id, name) -> DropdownMenuItem(text = { Text(name) }, onClick = { album = id; menu = false; load() }) }
                 } }
-            TextButton(enabled = !busy, onClick = { kind = when(kind) { null -> "photo"; "photo" -> "video"; else -> null }; load() }) { Text(when(kind) { "photo" -> "照片"; "video" -> "视频"; else -> "全部类型" }) }
-            TextButton(enabled = !busy, onClick = { unbacked = !unbacked; load() }) { Text(if (unbacked) "未备份 / 待确认" else "全部状态") }
+            Box {
+                TextButton(enabled = !busy, onClick = { kindMenu = true }) { Text(when(kind) { "photo" -> "照片"; "video" -> "视频"; else -> "全部类型" }) }
+                DropdownMenu(kindMenu, { kindMenu = false }) {
+                    listOf(null to "全部类型", "photo" to "照片", "video" to "视频").forEach { (value, title) ->
+                        DropdownMenuItem(text = { Text(title) }, onClick = { kind = value; kindMenu = false; load() })
+                    }
+                }
+            }
+            FilterChip(selected = unbacked, onClick = { unbacked = !unbacked; load() }, enabled = !busy,
+                label = { Text("未备份 / 待确认") })
         }
         if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-        LazyVerticalGrid(GridCells.Adaptive(105.dp), Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        LazyVerticalGrid(GridCells.Fixed(gridColumns), Modifier.weight(1f).galleryGridPinch(gridColumns) { gridColumns = it },
+            horizontalArrangement = Arrangement.spacedBy(3.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             if (rows.isEmpty() && !busy) item(span = { GridItemSpan(maxLineSpan) }) {
                 Column(Modifier.fillMaxWidth().padding(vertical = 36.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("这里还没有照片", style = MaterialTheme.typography.titleMedium)
-                    Text("添加可访问的照片，或调整筛选条件。", Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall)
-                    Button(onClick = { systemPicker = true }) { Text("选择照片") }
+                    Text(if (hasFilters) "没有符合条件的照片" else "这里还没有照片", style = MaterialTheme.typography.titleMedium)
+                    Text(if (hasFilters) "清除筛选后查看全部可访问的媒体。" else "从系统照片选择媒体，或授权访问本地图库。",
+                        Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall)
+                    Button(onClick = { if (hasFilters) { album = null; kind = null; unbacked = false; load() } else systemPicker = true }) {
+                        Text(if (hasFilters) "清除筛选" else "选择照片")
+                    }
                 }
             }
             rows.groupBy(::date).forEach { (day, group) ->
                 item(key = "day-$day", span = { GridItemSpan(maxLineSpan) }) { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Text(day, style = MaterialTheme.typography.titleSmall)
-                    TextButton(enabled = !busy, onClick = { selectScope(day) }) { Text("全选") }
+                    if (selecting) TextButton(enabled = !busy, onClick = { selectScope(day) }) { Text("全选") }
                 } }
                 items(group, key = { it.getString("source_id") }) { row ->
                     val checked = row.getString("source_id") in selection
-                    Column {
-                        Box(Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(10.dp))
-                            .border(if (checked) 2.dp else 0.dp, if (checked) MaterialTheme.colorScheme.primary else Color.Transparent, RoundedCornerShape(10.dp))) {
-                            LocalImage(context, row, false, Modifier.fillMaxSize()
-                                .combinedClickable(onClick = { preview = row }, onLongClick = { toggle(row) }))
-                            if (row.getString("media_kind") == "video") Text("视频", Modifier.align(Alignment.BottomStart).padding(6.dp)
-                                .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(6.dp)).padding(4.dp), color = Color.White, style = MaterialTheme.typography.labelSmall)
-                            Checkbox(checked, { toggle(row) }, Modifier.align(Alignment.TopEnd).padding(2.dp)
-                                .clip(CircleShape).background(Color.Black.copy(alpha = 0.3f))
-                                .semantics { contentDescription = "选择 ${row.getString("name")}" },
-                                colors = CheckboxDefaults.colors(uncheckedColor = Color.White, checkmarkColor = Color.White))
-                        }
-                        Text(LocalCatalog.status(row.getString("backup_state")), style = MaterialTheme.typography.labelSmall)
-                        if (row.getBoolean("excluded")) Text("自动备份已排除", style = MaterialTheme.typography.labelSmall)
+                    val status = row.getString("backup_state")
+                    val badge = when (status) { "complete" -> "✓"; "queued", "uploading" -> "↑"; "failed", "original_complete" -> "!"; else -> null }
+                    Box(Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(8.dp))
+                        .border(if (checked) 2.dp else 0.dp, if (checked) MaterialTheme.colorScheme.primary else Color.Transparent, RoundedCornerShape(8.dp))
+                        .combinedClickable(onClick = { if (selecting) toggle(row) else preview = row }, onLongClick = {
+                            selecting = true
+                            if (!checked) toggle(row)
+                        })
+                        .semantics { contentDescription = "${if (row.getString("media_kind") == "video") "视频" else "照片"}，${row.getString("name")}" }) {
+                        LocalImage(context, row, false, Modifier.fillMaxSize())
+                        if (row.getString("media_kind") == "video") Text("▶", Modifier.align(Alignment.BottomStart).padding(5.dp)
+                            .background(Color.Black.copy(alpha = 0.6f), CircleShape).padding(horizontal = 7.dp, vertical = 3.dp),
+                            color = Color.White, style = MaterialTheme.typography.labelSmall)
+                        if (badge != null) Text(badge, Modifier.align(Alignment.BottomEnd).padding(5.dp)
+                            .background(Color.Black.copy(alpha = 0.6f), CircleShape).padding(horizontal = 7.dp, vertical = 3.dp)
+                            .semantics { contentDescription = LocalCatalog.status(status) }, color = Color.White, style = MaterialTheme.typography.labelSmall)
+                        if (row.getBoolean("excluded")) Text("⊘", Modifier.align(Alignment.TopStart).padding(5.dp)
+                            .background(Color.Black.copy(alpha = 0.6f), CircleShape).padding(horizontal = 7.dp, vertical = 3.dp)
+                            .semantics { contentDescription = "自动备份已排除" }, color = Color.White, style = MaterialTheme.typography.labelSmall)
+                        if (selecting) Checkbox(checked, { toggle(row) }, Modifier.align(Alignment.TopEnd).padding(2.dp)
+                            .clip(CircleShape).background(Color.Black.copy(alpha = 0.3f))
+                            .semantics { contentDescription = "选择 ${row.getString("name")}" },
+                            colors = CheckboxDefaults.colors(uncheckedColor = Color.White, checkmarkColor = Color.White))
                     }
                 }
             }
             if (more) item(span = { GridItemSpan(maxLineSpan) }) { TextButton(onClick = { load(append = true) }, enabled = !busy) { Text("加载更多") } }
         }
-        Surface(tonalElevation = 3.dp, shape = RoundedCornerShape(16.dp)) {
+        if (selecting || needsPairing) Surface(tonalElevation = 3.dp, shape = RoundedCornerShape(16.dp)) {
             Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (selection.isNotEmpty()) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                if (selecting) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Text("已选 ${selection.size} 项", style = MaterialTheme.typography.titleSmall)
-                    TextButton(onClick = { selection = emptyMap() }) { Text("清空选择") }
+                    if (selection.isNotEmpty()) TextButton(onClick = { selection = emptyMap() }) { Text("清空选择") }
                 }
-                if (notice.isNotEmpty()) Text(notice, style = MaterialTheme.typography.bodySmall)
-                Button(modifier = Modifier.fillMaxWidth(), enabled = !busy && (selection.isNotEmpty() || config.authorizationCode.isBlank()), onClick = {
-                    if (config.serverUrl.isBlank() || config.authorizationCode.isBlank()) onLogin()
+                Button(modifier = Modifier.fillMaxWidth(), enabled = !busy && (selection.isNotEmpty() || needsPairing), onClick = {
+                    if (needsPairing) onLogin()
                     else scope.launch {
                         busy = true
                         try {
                             withContext(Dispatchers.IO) { LocalCatalog.persist(TransferStore.open(context, profile).handle, selection.values.toList()) }
-                            BackupScheduler.enqueueNow(context, config); selection = emptyMap(); onSubmitted()
-                        } catch (e: Exception) { notice = e.message ?: "提交失败" } finally { busy = false }
+                            BackupScheduler.enqueueNow(context, config); selection = emptyMap(); selecting = false; onSubmitted()
+                        } catch (e: Exception) { notice = e.message ?: "提交失败" } finally {
+                            busy = false
+                            if (queuedRefresh) {
+                                val pendingScan = queuedScan
+                                queuedRefresh = false; queuedScan = false
+                                load(scan = pendingScan)
+                            }
+                        }
                     }
-                }) { Text(if (config.authorizationCode.isBlank()) "配对后备份" else if (selection.isEmpty()) "勾选照片开始备份" else "备份所选 ${selection.size} 项") }
+                }) { Text(if (needsPairing) "配对后备份" else if (selection.isEmpty()) "勾选照片开始备份" else "备份所选 ${selection.size} 项") }
             }
         }
     }
@@ -177,18 +255,47 @@ internal fun LocalGalleryScreen(context: Context, config: SecureConfig, profile:
             SystemSelectionScreen(context, config, profile) { systemPicker = false; onSubmitted() }
         } }
     }
-    preview?.let { row -> Dialog(onDismissRequest = { preview = null }) { Surface { Column(Modifier.padding(12.dp)) {
-        Text(row.getString("name"))
-        if (row.getString("media_kind") == "video") LocalVideo(Uri.parse(row.getString("source_id")), Modifier.fillMaxWidth().height(300.dp))
-        else LocalImage(context, row, true, Modifier.fillMaxWidth().height(300.dp))
-        Text(LocalCatalog.status(row.getString("backup_state")))
-        TextButton(onClick = { toggle(row); preview = null }) { Text(if (row.getString("source_id") in selection) "取消选择" else "选择备份") }
-        TextButton(onClick = { scope.launch {
-            withContext(Dispatchers.IO) { TransferStore.gallery(TransferStore.open(context, profile).handle, "exclude", JSONObject()
-                .put("source_id", row.getString("source_id")).put("excluded", !row.getBoolean("excluded"))) }
-            preview = null; load()
-        } }) { Text(if (row.getBoolean("excluded")) "恢复自动备份" else "不再自动备份此项目") }
-    } } } }
+    preview?.let { row ->
+        if (row.getString("media_kind") == "video") Dialog(onDismissRequest = { preview = null }) {
+            Surface { Column(Modifier.padding(12.dp)) {
+                Text(row.getString("name"))
+                LocalVideo(Uri.parse(row.getString("source_id")), Modifier.fillMaxWidth().height(300.dp))
+                Text(LocalCatalog.status(row.getString("backup_state")))
+                TextButton(onClick = { selecting = true; toggle(row); preview = null }) { Text(if (row.getString("source_id") in selection) "取消选择" else "选择备份") }
+                TextButton(onClick = { scope.launch {
+                    try {
+                        withContext(Dispatchers.IO) { TransferStore.gallery(TransferStore.open(context, profile).handle, "exclude", JSONObject()
+                            .put("source_id", row.getString("source_id")).put("excluded", !row.getBoolean("excluded"))) }
+                        preview = null; load()
+                    } catch (e: Exception) { notice = e.message ?: "操作失败" }
+                } }) { Text(if (row.getBoolean("excluded")) "恢复自动备份" else "不再自动备份此项目") }
+            } }
+        } else {
+            var previewMenu by remember(row.getString("source_id")) { mutableStateOf(false) }
+            FullScreenPhotoDialog(onClose = { preview = null }) {
+                Box(Modifier.fillMaxSize()) {
+                    ZoomablePhotoFrame(onTap = { preview = null }, onLongPress = { previewMenu = true }) { imageModifier ->
+                        LocalImage(context, row, true, imageModifier)
+                    }
+                    DropdownMenu(expanded = previewMenu, onDismissRequest = { previewMenu = false }) {
+                        DropdownMenuItem(text = { Text(if (row.getString("source_id") in selection) "取消选择" else "选择备份") }, onClick = {
+                            previewMenu = false; selecting = true; toggle(row); preview = null
+                        })
+                        DropdownMenuItem(text = { Text(if (row.getBoolean("excluded")) "恢复自动备份" else "不再自动备份此项目") }, onClick = {
+                            previewMenu = false
+                            scope.launch {
+                                try {
+                                    withContext(Dispatchers.IO) { TransferStore.gallery(TransferStore.open(context, profile).handle, "exclude", JSONObject()
+                                        .put("source_id", row.getString("source_id")).put("excluded", !row.getBoolean("excluded"))) }
+                                    preview = null; load()
+                                } catch (e: Exception) { notice = e.message ?: "操作失败" }
+                            }
+                        })
+                    }
+                }
+            }
+        }
+    }
 }
 private val localRequests = Semaphore(3)
 @Composable
@@ -207,5 +314,6 @@ private fun LocalImage(context: Context, row: JSONObject, preview: Boolean, modi
             }
         }.getOrNull() } }
     }
-    Box(modifier) { bitmap?.let { Image(it.asImageBitmap(), row.getString("name"), Modifier.fillMaxSize(), contentScale = if (preview) ContentScale.Fit else ContentScale.Crop) } ?: Text("预览待加载") }
+    Box(modifier) { bitmap?.let { Image(it.asImageBitmap(), row.getString("name"), Modifier.fillMaxSize(), contentScale = if (preview) ContentScale.Fit else ContentScale.Crop) }
+        ?: if (!preview) Text("预览待加载") }
 }

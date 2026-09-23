@@ -29,6 +29,15 @@ struct LocalMedia: Identifiable {
         default: "状态待确认"
         }
     }
+    var statusSymbol: String? {
+        switch state {
+        case "complete": "checkmark.circle.fill"
+        case "original_complete": "exclamationmark.triangle.fill"
+        case "queued", "uploading": "arrow.up.circle.fill"
+        case "failed": "exclamationmark.triangle.fill"
+        default: nil
+        }
+    }
 }
 enum LocalCatalog {
     private static let log = Logger(subsystem: "org.sarmg.mediabackup", category: "LocalCatalog")
@@ -81,46 +90,79 @@ struct LocalGalleryScreen: View {
     @State private var unbacked = false
     @State private var selected: [String: LocalMedia] = [:]
     @State private var preview: LocalMedia?
+    @State private var videoPreview: LocalMedia?
+    @State private var isSelecting = false
+    @AppStorage("gallery_grid_columns") private var gridColumns = 3
     @State private var busy = false
     @State private var more = false
     @State private var access = ""
     @State private var message = ""
+    @State private var queuedRefresh = false
+    @State private var queuedScan = false
+    private var hasFilters: Bool { album != nil || kind != nil || unbacked }
+    private var needsPairing: Bool { coordinator.serverURL.isEmpty || coordinator.authorizationCode.isEmpty }
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 HStack {
-                    Menu {
-                        Picker("相册", selection: $album) {
-                            Text("全部相册").tag(Optional<String>.none)
-                            ForEach(albums) { Text($0.name).tag(Optional($0.id)) }
-                        }
-                        Picker("类型", selection: $kind) {
-                            Text("照片和视频").tag(Optional<String>.none)
-                            Text("照片").tag(Optional("photo")); Text("视频").tag(Optional("video"))
-                        }
-                        Toggle("仅未备份 / 待确认", isOn: $unbacked)
-                        Divider()
-                        Button("全选筛选结果") { Task { await selectScope() } }
-                    } label: { Label("筛选", systemImage: "line.3.horizontal.decrease") }
-                        .disabled(busy).buttonStyle(.bordered)
+                    if isSelecting {
+                        Button("取消") { selected = [:]; isSelecting = false }
+                        Button("全选") { Task { await selectScope() } }.disabled(busy)
+                    } else {
+                        Menu {
+                            Picker("相册", selection: $album) {
+                                Text("全部相册").tag(Optional<String>.none)
+                                ForEach(albums) { Text($0.name).tag(Optional($0.id)) }
+                            }
+                            Picker("类型", selection: $kind) {
+                                Text("照片和视频").tag(Optional<String>.none)
+                                Text("照片").tag(Optional("photo")); Text("视频").tag(Optional("video"))
+                            }
+                            Toggle("仅未备份 / 待确认", isOn: $unbacked)
+                        } label: { Label("筛选", systemImage: "line.3.horizontal.decrease") }
+                            .disabled(busy).buttonStyle(.bordered)
+                    }
                     Spacer()
-                    Menu {
-                        Button("从系统照片选择", action: onSystemPicker).accessibilityIdentifier("gallery.system-picker")
-                        Button("授权 / 调整照片范围") { Task { await requestAccess() } }
-                        Button("刷新图库") { Task { await load(scan: true) } }
-                    } label: { Label("添加照片", systemImage: "plus") }.buttonStyle(.bordered).accessibilityIdentifier("gallery.add")
+                    if !isSelecting {
+                        GalleryGridSizeControl(columns: $gridColumns)
+                        Button("选择") { isSelecting = true }.accessibilityIdentifier("gallery.select")
+                        Menu {
+                            Button("从系统照片选择", action: onSystemPicker).accessibilityIdentifier("gallery.system-picker")
+                            Button("授权 / 调整照片范围") { Task { await requestAccess() } }
+                            Button("刷新图库") { Task { await load(scan: true) } }
+                        } label: { Label("添加照片", systemImage: "plus") }.buttonStyle(.bordered).accessibilityIdentifier("gallery.add")
+                    }
+                }
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text("已载入 \(rows.count) 项\(more ? "，可继续加载" : "")")
+                        .font(.subheadline.weight(.medium))
+                    Spacer()
+                    if hasFilters { Button("清除筛选") { clearFilters() }.font(.subheadline) }
                 }
                 Text([albums.first(where: { $0.id == album })?.name ?? "全部相册",
                       kind == "video" ? "视频" : kind == "photo" ? "照片" : "照片和视频",
                       unbacked ? "未备份 / 待确认" : "全部状态"].joined(separator: " · "))
                     .font(.caption).foregroundStyle(.secondary)
                 if !access.isEmpty { Text(access).font(.caption).foregroundStyle(.secondary) }
+                if !rows.isEmpty {
+                    HStack(spacing: 12) {
+                        Label("已备份", systemImage: "checkmark.circle.fill")
+                        Label("传输中", systemImage: "arrow.up.circle.fill")
+                        Label("需处理", systemImage: "exclamationmark.triangle.fill")
+                    }.font(.caption2).foregroundStyle(.secondary)
+                }
+                if !message.isEmpty { Text(message).font(.footnote).foregroundStyle(.red) }
                 if busy { ProgressView().frame(maxWidth: .infinity) }
                 if rows.isEmpty && !busy {
-                    GalleryEmptyState(title: "这里还没有照片", message: "添加可访问的照片，或调整筛选条件。", icon: "photo.on.rectangle")
-                    Button("选择照片", action: onSystemPicker).buttonStyle(.borderedProminent).frame(maxWidth: .infinity)
+                    GalleryEmptyState(title: hasFilters ? "没有符合条件的照片" : "这里还没有照片",
+                        message: hasFilters ? "清除筛选后查看全部可访问的媒体。" : "从系统照片选择媒体，或授权访问本地图库。",
+                        icon: "photo.on.rectangle")
+                    Button(hasFilters ? "清除筛选" : "选择照片") {
+                        if hasFilters { clearFilters() } else { onSystemPicker() }
+                    }.buttonStyle(.borderedProminent).frame(maxWidth: .infinity)
                 }
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 105), spacing: 4)], alignment: .leading, spacing: 12, pinnedViews: [.sectionHeaders]) {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 3), count: min(5, max(2, gridColumns))),
+                    alignment: .leading, spacing: 3, pinnedViews: [.sectionHeaders]) {
                     ForEach(Array(Set(rows.map(\.day))).sorted(by: >), id: \.self) { day in
                         Section {
                             ForEach(rows.filter { $0.day == day }) { row in localTile(row) }
@@ -128,81 +170,125 @@ struct LocalGalleryScreen: View {
                             HStack {
                                 Text(day, style: .date).font(.subheadline.bold())
                                 Spacer()
-                                Button("全选") { Task { await selectScope(day: day) } }.disabled(busy)
-                                    .accessibilityLabel("选择此日期的全部照片")
+                                if isSelecting {
+                                    Button("全选") { Task { await selectScope(day: day) } }.disabled(busy)
+                                        .accessibilityLabel("选择此日期的全部照片")
+                                }
                             }.padding(.vertical, 10).background(Color(uiColor: .systemBackground))
                         }
                     }
                 }
+                .simultaneousGesture(MagnifyGesture().onEnded { value in
+                    let scale = value.magnification
+                    if scale > 1.18 { gridColumns = max(2, gridColumns - 1) }
+                    else if scale < 0.85 { gridColumns = min(5, gridColumns + 1) }
+                })
                 if more { Button("加载更多") { Task { await load(append: true) } }.disabled(busy).frame(maxWidth: .infinity) }
-                if !message.isEmpty { Text(message).font(.footnote).foregroundStyle(.secondary) }
             }.padding(.horizontal, 16).padding(.bottom, 12)
         }
         .refreshable { await load(scan: true) }
-        .safeAreaInset(edge: .bottom, spacing: 0) { selectionBar }
-        .task(id: coordinator.profile) { selected = [:]; await load(scan: true) }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if isSelecting || needsPairing { selectionBar }
+        }
+        .task(id: coordinator.profile) { selected = [:]; isSelecting = false; await load(scan: true) }
         .onChange(of: scenePhase) { _, phase in if phase == .active { Task { await load(scan: true) } } }
         .onChange(of: album) { _, _ in Task { await load(scan: true) } }
         .onChange(of: kind) { _, _ in Task { await load() } }
         .onChange(of: unbacked) { _, _ in Task { await load() } }
-        .sheet(item: $preview) { row in
+        .fullScreenCover(item: $preview) { row in
+            ZStack {
+                Color.black.ignoresSafeArea().onTapGesture { preview = nil }
+                PhotoKitImage(id: row.id, preview: true, onTap: { preview = nil })
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .accessibilityLabel("照片预览")
+                    .accessibilityAction(named: "关闭照片") { preview = nil }
+                    .contextMenu {
+                        Button(selected[row.id] == nil ? "选择备份" : "取消选择") { isSelecting = true; toggle(row); preview = nil }
+                        Button(row.excluded ? "恢复自动备份" : "不再自动备份此项目") {
+                            do { try coordinator.store().gallery(["op": "exclude", "source_id": row.id, "excluded": !row.excluded]); preview = nil; Task { await load() } }
+                            catch { message = error.localizedDescription }
+                        }
+                    }
+            }
+            .statusBarHidden()
+            .persistentSystemOverlays(.hidden)
+        }
+        .sheet(item: $videoPreview) { row in
             VStack {
                 Text(row.name)
-                if row.kind == "video" { PhotoKitVideo(id: row.id) }
-                else { PhotoKitImage(id: row.id, preview: true) }
+                PhotoKitVideo(id: row.id)
                 Text(row.status)
-                Button(selected[row.id] == nil ? "选择备份" : "取消选择") { toggle(row); preview = nil }
+                Button(selected[row.id] == nil ? "选择备份" : "取消选择") { isSelecting = true; toggle(row); videoPreview = nil }
                 Button(row.excluded ? "恢复自动备份" : "不再自动备份此项目") {
-                    do { try coordinator.store().gallery(["op": "exclude", "source_id": row.id, "excluded": !row.excluded]); preview = nil; Task { await load() } }
+                    do { try coordinator.store().gallery(["op": "exclude", "source_id": row.id, "excluded": !row.excluded]); videoPreview = nil; Task { await load() } }
                     catch { message = error.localizedDescription }
                 }
             }.padding()
         }
     }
     private func localTile(_ row: LocalMedia) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Color.clear.aspectRatio(1, contentMode: .fit)
-                .overlay {
-                    GeometryReader { proxy in
-                        PhotoKitImage(id: row.id, preview: false)
-                            .frame(width: proxy.size.width, height: proxy.size.height).clipped()
-                            .contentShape(Rectangle()).onTapGesture { preview = row }
-                            .onLongPressGesture { toggle(row) }
-                    }
+        Color.clear.aspectRatio(1, contentMode: .fit)
+            .overlay {
+                GeometryReader { proxy in
+                    PhotoKitImage(id: row.id, preview: false)
+                        .frame(width: proxy.size.width, height: proxy.size.height).clipped()
+                        .contentShape(Rectangle()).onTapGesture {
+                            if isSelecting { toggle(row) }
+                            else if row.kind == "video" { videoPreview = row }
+                            else { preview = row }
+                        }
+                        .onLongPressGesture {
+                            isSelecting = true
+                            if selected[row.id] == nil { toggle(row) }
+                        }
                 }
-                .overlay(alignment: .bottomLeading) {
-                    if row.kind == "video" {
-                        Image(systemName: "video.fill").font(.caption).foregroundStyle(.white)
-                            .padding(6).background(.black.opacity(0.45), in: Capsule()).padding(6)
-                    }
+            }
+            .overlay(alignment: .bottomLeading) {
+                if row.kind == "video" {
+                    Image(systemName: "video.fill").font(.caption).foregroundStyle(.white)
+                        .padding(6).background(.black.opacity(0.55), in: Capsule()).padding(5)
                 }
-                .clipShape(RoundedRectangle(cornerRadius: 10))
-                .overlay { RoundedRectangle(cornerRadius: 10).stroke(selected[row.id] == nil ? Color.clear : Color.accentColor, lineWidth: 3) }
-                .overlay(alignment: .topTrailing) {
-                    GallerySelectionButton(selected: selected[row.id] != nil, name: row.name) { toggle(row) }
+            }
+            .overlay(alignment: .bottomTrailing) {
+                if let symbol = row.statusSymbol {
+                    Image(systemName: symbol).font(.caption).foregroundStyle(.white)
+                        .padding(6).background(.black.opacity(0.55), in: Circle()).padding(5)
+                        .accessibilityLabel(row.status)
                 }
-            Text(row.status).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
-            if row.excluded { Text("自动备份已排除").font(.caption2).foregroundStyle(.secondary) }
-        }.accessibilityElement(children: .contain).accessibilityIdentifier("media.tile.\(row.name)")
+            }
+            .overlay(alignment: .topLeading) {
+                if row.excluded {
+                    Image(systemName: "slash.circle.fill").font(.caption).foregroundStyle(.white)
+                        .padding(6).background(.black.opacity(0.55), in: Circle()).padding(5)
+                        .accessibilityLabel("自动备份已排除")
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay { RoundedRectangle(cornerRadius: 8).stroke(selected[row.id] == nil ? Color.clear : Color.accentColor, lineWidth: 3) }
+            .overlay(alignment: .topTrailing) {
+                if isSelecting { GallerySelectionButton(selected: selected[row.id] != nil, name: row.name) { toggle(row) } }
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("media.tile.\(row.name)")
     }
     private var selectionBar: some View {
         VStack(spacing: 10) {
-            if !selected.isEmpty {
+            if isSelecting {
                 HStack {
                     Text("已选 \(selected.count) 项").font(.subheadline.bold())
                     Spacer()
-                    Button("清空选择") { selected = [:] }.font(.subheadline)
+                    if !selected.isEmpty { Button("清空选择") { selected = [:] }.font(.subheadline) }
                 }
             }
             Button {
-                if coordinator.authorizationCode.isEmpty || coordinator.serverURL.isEmpty { onLogin(); return }
-                let descriptors = selected.values.map(\.descriptor); selected = [:]; onSubmitted()
+                if needsPairing { onLogin(); return }
+                let descriptors = selected.values.map(\.descriptor); selected = [:]; isSelecting = false; onSubmitted()
                 Task { await coordinator.enqueueLocal(descriptors) }
             } label: {
-                Label(coordinator.authorizationCode.isEmpty ? "配对后备份" : selected.isEmpty ? "勾选照片开始备份" : "备份所选 \(selected.count) 项", systemImage: "icloud.and.arrow.up")
+                Label(needsPairing ? "配对后备份" : selected.isEmpty ? "勾选照片开始备份" : "备份所选 \(selected.count) 项", systemImage: "icloud.and.arrow.up")
                     .frame(maxWidth: .infinity).padding(.vertical, 6)
             }
-            .disabled(busy || coordinator.running || (selected.isEmpty && !coordinator.authorizationCode.isEmpty))
+            .disabled(busy || coordinator.running || (selected.isEmpty && !needsPairing))
             .buttonStyle(.borderedProminent)
         }.padding(.horizontal, 16).padding(.vertical, 12).background(.regularMaterial)
     }
@@ -214,8 +300,23 @@ struct LocalGalleryScreen: View {
         await load(scan: true)
     }
     private func toggle(_ row: LocalMedia) { if selected.removeValue(forKey: row.id) == nil { selected[row.id] = row } }
+    private func clearFilters() {
+        album = nil; kind = nil; unbacked = false
+    }
     @MainActor private func load(scan: Bool = false, append: Bool = false) async {
-        guard !busy else { return }; busy = true; defer { busy = false }
+        guard !busy else {
+            if !append { queuedRefresh = true; queuedScan = queuedScan || scan }
+            return
+        }
+        busy = true
+        defer {
+            busy = false
+            if queuedRefresh {
+                let scan = queuedScan
+                queuedRefresh = false; queuedScan = false
+                Task { await load(scan: scan) }
+            }
+        }
         let identity = coordinator.profile
         do {
             let store = try coordinator.store(); let filter = kind; let missing = unbacked; let chosenAlbum = album
@@ -224,16 +325,25 @@ struct LocalGalleryScreen: View {
                 access = authorization == .authorized ? "完整访问" : authorization == .limited ? "部分访问：仅显示已授权媒体" : "无相册访问权：仍可使用系统选择器"
                 let fetched = try await Task.detached { try LocalCatalog.scan(store: store, album: chosenAlbum) }.value
                 guard identity == coordinator.profile else { return }
-                albums = fetched; selected = [:]
+                albums = fetched
             }
             let offset = append ? rows.count : 0
             let page = try await Task.detached { try LocalCatalog.page(store: store, kind: filter, unbacked: missing, offset: offset) }.value
             guard identity == coordinator.profile else { return }
-            rows = append ? rows + page : page; more = page.count == 150
+            rows = append ? rows + page : page; more = page.count == 150; message = ""
         } catch { message = error.localizedDescription }
     }
     @MainActor private func selectScope(day: Date? = nil) async {
-        guard !busy else { return }; busy = true; defer { busy = false }
+        guard !busy else { return }
+        busy = true
+        defer {
+            busy = false
+            if queuedRefresh {
+                let scan = queuedScan
+                queuedRefresh = false; queuedScan = false
+                Task { await load(scan: scan) }
+            }
+        }
         let identity = coordinator.profile
         do {
             let store = try coordinator.store(); let filter = kind; let missing = unbacked
@@ -253,13 +363,15 @@ struct LocalGalleryScreen: View {
 struct PhotoKitImage: View {
     let id: String
     let preview: Bool
+    var onTap: (() -> Void)? = nil
     @State private var image: UIImage?
     @State private var request: PHImageRequestID?
     var body: some View {
         Group {
             if let image {
-                if preview { ZoomablePhoto(image: image) } else { Image(uiImage: image).resizable().scaledToFill() }
-            } else { Text("预览待加载").frame(maxWidth: .infinity, minHeight: 100) }
+                if preview { ZoomablePhoto(image: image, onTap: onTap) } else { Image(uiImage: image).resizable().scaledToFill() }
+            } else if preview { Color.black.onTapGesture { onTap?() } }
+            else { Text("预览待加载").frame(maxWidth: .infinity, minHeight: 100) }
         }.onAppear {
             guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject else { return }
             let options = PHImageRequestOptions(); options.deliveryMode = .opportunistic; options.isNetworkAccessAllowed = preview

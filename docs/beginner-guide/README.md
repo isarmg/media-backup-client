@@ -22,7 +22,7 @@ Media Backup 解决的是“手机原始照片和视频可靠上传到自有服�
 完整的社交图库，也不是零知识加密系统。TLS 保护网络传输，服务端最终保存原始明文字节，因此服务器
 和数据卷管理员能够读取媒体；生产安全依赖主机权限、磁盘加密、TLS 和可靠备份。
 
-当前 Client 发行号为 `0.4.13`；持久状态合同仍是应用版本 `0.4.0`、revision 1、
+当前 Client 发行号为 `0.4.14`；持久状态合同仍是应用版本 `0.4.0`、revision 1、
 `media-backup-mobile-v0.4-r1` 与 SQLite schema revision 2。移动 `/v2` API 和 `plain-v1` 存储由固定
 Server protocol revision 定义。发现非当前本地状态时 Client 必须零写入拒绝，不能猜测或转换。
 

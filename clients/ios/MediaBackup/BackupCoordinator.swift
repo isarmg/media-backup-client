@@ -31,6 +31,7 @@ final class BackupCoordinator: ObservableObject {
     @Published var duplicateGroups: [DuplicateGroup] = []
     @Published var favoritesOnly = false
     @Published var libraryLoading = false
+    @Published var libraryError: String? = nil
     @Published var nextCursor: String?
     @Published var downloads: [DownloadTransfer] = []
     @Published var batches: [TransferBatch] = []
@@ -51,7 +52,7 @@ final class BackupCoordinator: ObservableObject {
         credentialGeneration += 1
         libraryGeneration += 1
         uploader?.cancel(); uploader = nil
-        downloads = []; library = nil; remoteAssets = []; remoteAlbums = []; duplicateGroups = []; selectedRemoteAlbum = nil; nextCursor = nil; batches = []; libraryLoading = false
+        downloads = []; library = nil; remoteAssets = []; remoteAlbums = []; duplicateGroups = []; selectedRemoteAlbum = nil; nextCursor = nil; batches = []; libraryLoading = false; libraryError = nil
     }
     func stopTransfers() { uploader?.cancel(); uploader = nil }
     func store() throws -> TransferStore {
@@ -140,6 +141,7 @@ final class BackupCoordinator: ObservableObject {
         libraryGeneration += 1
         if let trashed { showingTrash = trashed }
         remoteAssets = []; nextCursor = nil; seenCursors = []
+        libraryError = nil
         await loadLibraryPage(first: true)
     }
     func loadLibraryPage(first: Bool = false) async {
@@ -163,9 +165,11 @@ final class BackupCoordinator: ObservableObject {
             if let next = page.nextCursor, !seenCursors.insert(next).inserted { throw RemoteLibraryError.invalidCursor }
             var ids = Set(remoteAssets.map(\.id))
             remoteAssets.append(contentsOf: page.items.filter { ids.insert($0.id).inserted })
-            nextCursor = page.nextCursor; library = connection
+            nextCursor = page.nextCursor; library = connection; libraryError = nil
             status = "\(page.cached ? "离线缓存 · " : "")已加载 \(remoteAssets.count) 项云端媒体"
-        } catch { if identity == profile && generation == libraryGeneration { status = error.localizedDescription } }
+        } catch { if identity == profile && generation == libraryGeneration {
+            libraryError = error.localizedDescription; status = error.localizedDescription
+        } }
     }
     func synchronizeGallery() async {
         let identity = profile
