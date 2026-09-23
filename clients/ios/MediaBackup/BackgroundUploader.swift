@@ -55,12 +55,12 @@ final class BackgroundUploader: NSObject, URLSessionTaskDelegate {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try encoder.encode(job.request)
         let (data, response) = try await SecureSession.shared.data(for: request)
-        try requireSuccess(response, data: data)
+        try requireSuccess(response)
         let created = try decoder.decode(CreateUploadResponse.self, from: data)
         if created.disposition == "complete" {
             guard let resource = created.resourceId else { throw UploadFailure.invalidResponse }
             let (manifest, response) = try await SecureSession.shared.data(for: authorized(path: "/v2/resources/\(resource)", method: "GET"))
-            try requireSuccess(response, data: manifest)
+            try requireSuccess(response)
             try saveReceipt(jobId: job.jobId, data: manifest, hash: job.request.contentBlake3)
             return
         }
@@ -99,15 +99,18 @@ final class BackgroundUploader: NSObject, URLSessionTaskDelegate {
             "source_asset_ids": Array(assetIds),
             "replace_members": false,
         ])
-        let (data, response) = try await SecureSession.shared.data(for: request)
-        try requireSuccess(response, data: data)
+        let (_, response) = try await SecureSession.shared.data(for: request)
+        try requireSuccess(response)
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         lock.lock(); let completion = completions.removeValue(forKey: task.taskIdentifier); lock.unlock()
         if let error { completion?.resume(throwing: error); return }
-        guard let response = task.response as? HTTPURLResponse, (200..<300).contains(response.statusCode) else {
+        guard let response = task.response as? HTTPURLResponse else {
             completion?.resume(throwing: UploadFailure.invalidResponse); return
+        }
+        guard (200..<300).contains(response.statusCode) else {
+            completion?.resume(throwing: UploadFailure.server(response.statusCode)); return
         }
         completion?.resume()
         // After process termination, durable Rust work is recovered by querying server missing parts.
@@ -118,7 +121,7 @@ final class BackgroundUploader: NSObject, URLSessionTaskDelegate {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = Data("{}".utf8)
         let (data, response) = try await SecureSession.shared.data(for: request)
-        try requireSuccess(response, data: data)
+        try requireSuccess(response)
         try saveReceipt(jobId: jobId, data: data, hash: hash)
     }
 
@@ -139,10 +142,9 @@ final class BackgroundUploader: NSObject, URLSessionTaskDelegate {
         return request
     }
 
-    private func requireSuccess(_ response: URLResponse, data: Data) throws {
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw UploadFailure.server(String(decoding: data, as: UTF8.self))
-        }
+    private func requireSuccess(_ response: URLResponse) throws {
+        guard let http = response as? HTTPURLResponse else { throw UploadFailure.invalidResponse }
+        guard (200..<300).contains(http.statusCode) else { throw UploadFailure.server(http.statusCode) }
     }
 
     static func bootstrap(serverURL: URL, authorizationCode: String) async throws -> BootstrapResponse {
@@ -169,8 +171,16 @@ final class BackgroundUploader: NSObject, URLSessionTaskDelegate {
     }
 }
 
-enum UploadFailure: Error {
+enum UploadFailure: LocalizedError {
     case invalidResponse
     case missingPart(UInt32)
-    case server(String)
+    case server(Int)
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidResponse: "服务器返回无效响应"
+        case .missingPart(let index): "服务器要求的分块不存在（编号 \(index)）"
+        case .server(let status): "服务器请求失败（HTTP \(status)）"
+        }
+    }
 }

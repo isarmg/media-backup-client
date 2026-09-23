@@ -324,10 +324,14 @@ final class BackupCoordinator: ObservableObject {
             for batch in try store.batches() where !batch.cancelled {
                 for item in batch.items where item["state"] as? String == "pending" {
                     try checkCurrent()
-                    let id = item["id"] as! String
+                    guard let id = item["id"] as? String else {
+                        throw CoordinatorFailure.message("本地传输项目缺少 ID")
+                    }
                     do {
-                        let source = item["source"] as! String
-                        let descriptor = try JSONSerialization.jsonObject(with: Data(source.utf8)) as! [String: Any]
+                        guard let source = item["source"] as? String,
+                            let descriptor = try JSONSerialization.jsonObject(with: Data(source.utf8)) as? [String: Any] else {
+                            throw CoordinatorFailure.message("本地传输项目来源无效")
+                        }
                         try await SelectedMedia.prepare(descriptor, store: store, batch: batch.id, item: id, drain: drain)
                     } catch {
                         try store.setItem(batch: batch.id, item: id, state: "blocked", error: error.localizedDescription)

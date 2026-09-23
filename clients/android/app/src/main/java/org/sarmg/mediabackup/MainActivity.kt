@@ -106,7 +106,7 @@ private fun SettingsScreen(context: Context, config: SecureConfig, onLogin: () -
         item { Text("备份偏好", style = MaterialTheme.typography.titleMedium) }
         item { SettingToggle("自动备份", auto) { auto = it } }
         item { SettingToggle("仅 Wi-Fi", wifi) { wifi = it } }
-        item { SettingToggle("仅充电时上传", charging) { charging = it } }
+        item { SettingToggle("后台仅充电时上传", charging) { charging = it } }
         item { SettingToggle("自动备份照片", photos) { photos = it } }
         item { SettingToggle("自动备份视频", videos) { videos = it } }
         item { SettingToggle("仅相机目录", camera) { camera = it } }

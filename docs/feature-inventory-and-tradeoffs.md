@@ -157,7 +157,7 @@ React 管理页、配置与 systemd、发行 identity/manifest、CI/脚本、正
 | MED-D-006 | MediaStore 扫描按修改状态入 Client，并导出原始资源和设备缩略图 | `MediaScanner.kt` | 核心 | 高 | Android 无媒体输入或无快速预览资源 | photo/video、损坏 URI、文件名/MIME、thumbnail |
 | MED-D-007 | 每批最多扫描 40、上传 60；未完成返回 WorkManager retry | `BackupWorker` constants | 保障 | 中 | 单次 worker 无界运行，易被系统终止 | 超上限、queue 未 drain、下一次继续 |
 | MED-D-008 | 全局 Kotlin Mutex 防止同进程两个 BackupWorker 同时驱动同一 Client | `backupMutex` | 保障 | 中 | 队列状态和 stage 可被并发宿主交错 | 自动+手动同时触发、取消后解锁 |
-| MED-D-009 | WorkManager 支持立即、周期、Wi-Fi-only、charging-only 与取消 | `BackupScheduler.kt` | 建议保留 | 高 | 只能前台手动备份，可靠性显著下降 | constraints、unique work、配置变更、stop |
+| MED-D-009 | WorkManager 支持手动加入后台队列、周期调度、Wi-Fi-only、charging-only 与取消；手动加入的队列也遵守后台网络和充电约束 | `BackupScheduler.kt`、`MainActivity.kt` | 建议保留 | 高 | 只能前台手动备份，可靠性显著下降 | constraints、unique work、配置变更、stop |
 | MED-D-010 | 长任务以前台 dataSync notification 发布阶段、项目和进度 | `createForegroundInfo` | 保障 | 中 | 新 Android 会限制后台运行，用户也看不到占用 | notification permission/channel、API 29+ type、取消 |
 | MED-D-011 | BackupApi 校验 HTTPS 根地址，bootstrap 使用实例授权码，upload/library 使用 Bearer token；连接超时 30 秒、读写超时 10 分钟 | `BackupApi.kt` | 核心 | 高 | Android 无法与 Server 互操作 | status/body/JSON、token、timeout、TLS failure；HTTPS 根地址、精确同源并禁止重定向 |
 | MED-D-012 | 上传只发送 Server 返回的 missing parts，每块成功后持久化 Client checkpoint | `BackupWorker::uploadJob` | 保障 | 高 | 断线后完整重传，或本地误标已上传 | missing subset、part failure、complete failure |
@@ -177,9 +177,9 @@ React 管理页、配置与 systemd、发行 identity/manifest、CI/脚本、正
 | MED-I-005 | PHAssetResource 原始字节允许从 iCloud 下载到临时源 | `PhotoScanner::export` | 核心 | 高 | iCloud-only 媒体无法备份 | network allowed、下载失败、取消、临时文件 |
 | MED-I-006 | iOS 设备生成 512×512 高质量 JPEG thumbnail 并作为独立 `thumbnail` resource | `PhotoScanner::thumbnail` | 建议保留 | 中 | 远端列表仍可取原图但预览代价显著上升 | degraded callback、error、无 image、metadata role |
 | MED-I-007 | Background URLSession 上传 part，并用 taskDescription 绑定 job/upload/index | `BackgroundUploader.swift` | 建议保留 | 高 | App 退到后台后传输更易中断，或 callback 无法回到 job | 当前 delegate 活着时 mapping/HTTP/file failure；进程重启事件接管尚未实现，不能声称 relaunch 闭环 |
-| MED-I-008 | bootstrap/complete/album 请求使用当前 JSON identity 与 Bearer token | `BackgroundUploader`、`MobileContractV02` | 核心 | 高 | iOS 与 Server/Client 合同分叉 | exact JSON、错误 envelope、token 缺失 |
+| MED-I-008 | bootstrap/complete/album 请求使用当前 JSON identity 与 Bearer token；上传和图库的 HTTP 失败只向界面及队列提供状态码，不透传响应正文 | `BackgroundUploader`、`RemoteLibrary`、`MobileContractV02` | 核心 | 高 | iOS 与 Server/Client 合同分叉，或把诊断正文持久化到传输错误 | exact JSON、HTTP 失败说明不含响应正文、token 缺失 |
 | MED-I-009 | BackupCoordinator 串行扫描，本轮最多处理 60 个 Client job；逐块等待 background session 回调并提交资源回执，自动扫描后增量同步相册 | `runBackup`、`BackgroundUploader::submit` | 核心 | 高 | UI 与后台组件无法形成完整旅程 | 分块失败、额度上限和取消；本轮未备份的资产成员在后续运行补齐 |
-| MED-I-010 | RemoteLibrary 提供分页 timeline、筛选、增量缓存、收藏归档、标签、trash 和恢复到 Photos | `RemoteLibrary.swift`、`GallerySynchronizer.swift`、`BackupCoordinator.swift` | 核心 | 高 | 备份只能写不能查/恢复 | 多页、cursor、sync、下载、Photos write permission |
+| MED-I-010 | RemoteLibrary 提供分页 timeline、筛选、增量缓存、收藏归档、标签、trash 和恢复到 Photos；无效时间线结构或本地批次结构以错误反馈，不强制转换崩溃 | `RemoteLibrary.swift`、`GallerySynchronizer.swift`、`BackupCoordinator.swift`、`TransferStore.swift` | 核心 | 高 | 备份只能写不能查/恢复 | 多页、cursor、sync、下载、无效 JSON/队列结构、Photos write permission |
 | MED-I-011 | 恢复选择 primary resource，把 HTTP 下载临时文件交给 PhotoKit 创建 asset | `restoreToPhotos` | 核心 | 高 | 核心“恢复”目标消失 | 无 primary、下载失败、照片/视频、权限；当前未接入 size/BLAKE3 校验 |
 | MED-I-012 | AppDelegate 注册 BGProcessingTask，expiration 取消 Swift Task；本轮返回成功且未取消时报告 success，业务错误或已有运行任务时报告失败 | `MediaBackupApp.swift`、`BackupCoordinator::runBackup` | 保障 | 中 | 删除后 iOS 不会按系统时机继续调度备份 | 业务失败、并发触发、expiration；当前未实现 `handleEventsForBackgroundURLSession` |
 | MED-I-013 | iOS application、测试 target、BGTask、Keychain、preferences 与 upload session 均位于唯一 `org.sarmg.mediabackup` 当前命名空间 | `project.yml`、`MobileContractV02.swift` | 保障 | 中 | bundle 与持久域分叉，或继续依赖开发占位 identity | xcodegen/plist；bundle IDs；BGTask；Keychain/preferences；源码无开发占位 namespace |
@@ -189,7 +189,7 @@ React 管理页、配置与 systemd、发行 identity/manifest、CI/脚本、正
 | ID | 当前功能/特性与真实行为 | 实现/代码锚点 | 分类 | 复杂度 | 删除后的确定后果 | 最低验证/边界 |
 |---|---|---|---|---|---|---|
 | MED-W-001 | Foundation Shell 统一 restore/login/logout、导航、通知与诊断，Session/CSRF 只在内存；产品没有第二套登录状态机 | `createSarmgAdminApplication`、`@sarmg/admin-shell` | 保障 | 高 | 认证竞态或 Secret 持久化 | 共享 Shell 测试、消费者 Chromium/Firefox 验收 |
-| MED-W-002 | 统一实例列表、详细信息和日志视图；管理员账号仅由 Foundation Shell 右上角人物图标设置；业务读取失败清除旧数据，安全错误显示 Request ID 和显式重试 | `Application`、`OverviewView`、`UsersView`、`LogsView` | 建议保留 | 中 | 账户域混淆或失败后仍显示过期状态 | 切页、失败/重试、账号设置、无内部错误泄漏 |
+| MED-W-002 | 统一实例列表、详细信息和日志视图；日志默认显示 Server 当天，日期选择器按 Server 本地日历日一次显示全部管理员审计记录；管理员账号仅由 Foundation Shell 右上角人物图标设置；业务读取失败清除旧数据，安全错误显示 Request ID 和显式重试 | `Application`、`OverviewView`、`UsersView`、`LogsView` | 建议保留 | 中 | 账户域混淆或失败后仍显示过期状态 | 切页、超过 200 条日志、日期边界、失败/重试、账号设置、无内部错误泄漏 |
 | MED-W-003 | 总览聚合 active/total user、used/pending/quota 和每用户设备/resource 数 | `/api/v2/admin/overview`、Overview guard | 建议保留 | 中 | 容量和账户状态只能手工查询 | unlimited quota、large safe integer、空库 |
 | MED-W-004 | 创建/修改备份账户及其客户端实例，停用需确认；实例授权码可查看、轮换、取消并在终态删除；GiB 配额往返保留原始整数字节 | `BackupUserForm`、`InstanceManager` | 核心 | 高 | 部分成功被误报、重复写入或授权未真正撤销 | create/edit/disable、实例配对/轮换/删除、精确 quota |
 | MED-W-005 | 业务 JSON 在进入组件前校验必需字段与类型，路径只允许 `/api/v2/admin/*` | Server `web/src/api.ts` | 保障 | 中 | 漂移响应会进入组件，或产品 client 被用于移动路由 | 缺失/错误类型、错误 prefix；当前 guard 容忍响应额外字段 |
@@ -204,7 +204,7 @@ React 管理页、配置与 systemd、发行 identity/manifest、CI/脚本、正
 
 | ID | 当前功能/特性与真实行为 | 实现/代码锚点 | 分类 | 复杂度 | 删除后的确定后果 | 最低验证/边界 |
 |---|---|---|---|---|---|---|
-| MED-R-001 | Server 软件为 0.3.14，数据库 Schema identity 为 media-backup 0.3.0、revision 4、SHA `84f0e8032d8814b8815b0a6a8a499e0e0d7bb44d37932cf78c1e75bd0b5826fe`；管理员和平台 DDL 由 Foundation 组合 | Server `database.rs`、`schema/generated/current_schema.sql` | 保障 | 高 | 错库或 DDL drift 必须拒绝 | metadata、现场 fingerprint、当前身份精确校验 |
+| MED-R-001 | Server 软件为 0.3.20，数据库 Schema identity 为 media-backup 0.3.0、revision 5、SHA `a07c5723568cfcbf379a2173225122dc5db4e2168a50700d7f256aba3de5957e`；管理员和平台 DDL 由 Foundation 组合 | Server `database.rs`、`schema/generated/current_schema.sql` | 保障 | 高 | 错库或 DDL drift 必须拒绝 | metadata、现场 fingerprint、当前身份精确校验 |
 | MED-R-002 | Client 当前 Schema revision 为 2，SHA 为 `87eb55ba9366cd06d5a2e0b69b5fd4c7a6eef59c381e9fd4ea340e9e04ef6dfb` | `client-core/database.rs` | 保障 | 高 | 手机队列状态不可证明 | Rust/Kotlin/Swift epoch 与 Schema identity |
 | MED-R-003 | 两个数据库都先复制 main/WAL/journal 私有 generation，再验证 source 未变化 | 两个 `database.rs` | 保障 | 高 | 启动验证可能读取跨时刻混合状态或写源库 | WAL、并发变化、symlink、cleanup |
 | MED-R-004 | Server open 使用 WAL、foreign keys、busy timeout，并在业务前做 integrity/FK | `database.rs`、doctor | 保障 | 高 | 并发/损坏行为变得不可预测 | PRAGMA、busy 5s、corruption、FK violation |
@@ -218,7 +218,7 @@ React 管理页、配置与 systemd、发行 identity/manifest、CI/脚本、正
 | MED-R-012 | `build-server-release.sh` 只在 Linux AMD64 接受 64-bit little-endian x86_64 ELF | release script | 开发运维 | 中 | 文件名 target 与真实 ELF 可不一致 | ELF magic/class/endian/machine、wrong host |
 | MED-R-013 | 发行包包含 binary、配置样例、`deploy/media-backup.service` 映射出的 systemd、脚本、Web、FFI header 和必要文档 | build script | 开发运维 | 高 | 操作者拿到不完整或跨代部署单元 | expected exact layout、真实 verify-release |
 | MED-R-014 | systemd 使用 `isarmg-media`、flat `/etc/isarmg/media-backup.env`、ConditionArchitecture 和 sandbox | `deploy/media-backup.service` | 保障 | 高 | 错服务账号、配置路径或权限扩大主机攻击面 | `systemd-analyze verify`、实际 start、write paths |
-| MED-R-015 | Server 安装 no-clobber 固定 `/opt/isarmg/media-backup/releases/0.3.14`，环境 0600 | Server `setup-wsl.sh`、deployment tests | 保障 | 高 | 同版本覆盖会让运行内容不可追溯，Secret 权限过宽 | 首装/二次安装、concurrent、mode/owner |
+| MED-R-015 | Server 安装 no-clobber 固定 `/opt/isarmg/media-backup/releases/0.3.20`，环境 0600 | Server `setup-wsl.sh`、deployment tests | 保障 | 高 | 同版本覆盖会让运行内容不可追溯，Secret 权限过宽 | 首装/二次安装、concurrent、mode/owner |
 | MED-R-016 | CI 分别覆盖 Rust/Server release、Android、iOS 和移动静态合同 | `.github/workflows`、contract scripts | 开发运维 | 高 | 任一平台可在 wire/FFI 漂移时独立发布 | clean checkout jobs、平台矩阵、lock mode |
 | MED-R-017 | Rust 固定 1.98.0；Web Node/toolchain 与 Cargo/npm locks 均固定 | toolchain/version/lock files | 开发运维 | 中 | 解析随时间变化，制品难复现 | `--locked`、`npm ci`、version output |
 | MED-R-018 | 中文 README、学习、流程、功能取舍和运维文档是发行/维护闭包 | `README.md`、`docs/` | 开发运维 | 低 | 跨五种语言/平台的知识只能口头传递 | 链接、命令、代码锚点和 schema hash 抽查 |

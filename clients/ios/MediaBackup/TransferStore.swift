@@ -63,12 +63,20 @@ final class TransferStore: @unchecked Sendable {
         try client.transfer(["op": "gallery", "command": command])
     }
     func batches() throws -> [TransferBatch] {
-        let rows = try client.transfer(["op": "batches"]) as? [[String: Any]] ?? []
+        guard let rows = try client.transfer(["op": "batches"]) as? [[String: Any]] else {
+            throw ClientFailure.message("本地传输列表结构无效")
+        }
         return try rows.map { row in
-            let id = row["id"] as! String
-            let items = try client.transfer(["op": "items", "batch_id": id]) as? [[String: Any]] ?? []
-            return TransferBatch(id: id, count: (row["items"] as? Int) ?? 0, complete: (row["complete"] as? Int) ?? 0,
-                cancelled: (row["cancelled"] as? Bool) ?? false, items: items)
+            guard let id = row["id"] as? String, let count = row["items"] as? Int,
+                let complete = row["complete"] as? Int, let cancelled = row["cancelled"] as? Bool,
+                count >= 0, complete >= 0, complete <= count else {
+                throw ClientFailure.message("本地传输批次结构无效")
+            }
+            guard let items = try client.transfer(["op": "items", "batch_id": id]) as? [[String: Any]] else {
+                throw ClientFailure.message("本地传输项目结构无效")
+            }
+            return TransferBatch(id: id, count: count, complete: complete,
+                cancelled: cancelled, items: items)
         }
     }
     func setItem(batch: String, item: String, state: String, error: String? = nil) throws {

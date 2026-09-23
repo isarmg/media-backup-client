@@ -73,12 +73,13 @@ struct RemoteLibrary {
         guard let url = components?.url else { throw RemoteLibraryError.invalidURL }
         do {
             let (data, response) = try await SecureSession.shared.data(for: authorized(url: url, method: "GET"))
-            try requireSuccess(response, data: data)
-            let raw = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+            try requireSuccess(response)
             let page = try decoder.decode(TimelinePage.self, from: data)
+            guard let raw = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                let items = raw["items"] else { throw RemoteLibraryError.invalidResponse }
             guard page.nextCursor == nil || page.nextCursor != cursor else { throw RemoteLibraryError.invalidCursor }
             try store?.gallery(["op": "save_page", "query_key": key, "cursor": cursor as Any? ?? NSNull(),
-                "items": raw["items"]!, "next_cursor": raw["next_cursor"] ?? NSNull()])
+                "items": items, "next_cursor": raw["next_cursor"] ?? NSNull()])
             return page
         } catch {
             try Task.checkCancellation()
@@ -92,7 +93,7 @@ struct RemoteLibrary {
     func json(_ path: String, allowMissing: Bool = false) async throws -> Any? {
         let (data, response) = try await SecureSession.shared.data(for: authorized(url: SecureSession.resolve(path, base: serverURL), method: "GET"))
         if allowMissing, (response as? HTTPURLResponse)?.statusCode == 404 { return nil }
-        try requireSuccess(response, data: data)
+        try requireSuccess(response)
         return try JSONSerialization.jsonObject(with: data)
     }
     func previewFile(_ resource: RemoteResource) async throws -> URL {
@@ -102,7 +103,7 @@ struct RemoteLibrary {
 
     func albums() async throws -> [RemoteAlbum] {
         let (data, response) = try await SecureSession.shared.data(for: authorized(url: serverURL.appending(path: "/v2/albums"), method: "GET"))
-        try requireSuccess(response, data: data)
+        try requireSuccess(response)
         return try decoder.decode([RemoteAlbum].self, from: data)
     }
 
@@ -126,7 +127,7 @@ struct RemoteLibrary {
             url: serverURL.appending(path: "/v2/tags"),
             method: "GET"
         ))
-        try requireSuccess(listResponse, data: listData)
+        try requireSuccess(listResponse)
         let tags = try decoder.decode([RemoteTag].self, from: listData)
         let tag: RemoteTag
         if let existing = tags.first(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }) {
@@ -136,7 +137,7 @@ struct RemoteLibrary {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONSerialization.data(withJSONObject: ["name": name])
             let (data, response) = try await SecureSession.shared.data(for: request)
-            try requireSuccess(response, data: data)
+            try requireSuccess(response)
             tag = try decoder.decode(RemoteTag.self, from: data)
         }
         try await send(path: "/v2/tags/\(tag.tagId)/assets/\(asset.assetId)", method: "POST")
@@ -146,7 +147,7 @@ struct RemoteLibrary {
         let (data, response) = try await SecureSession.shared.data(for: authorized(
             url: serverURL.appending(path: "/v2/tags"), method: "GET"
         ))
-        try requireSuccess(response, data: data)
+        try requireSuccess(response)
         let tags = try decoder.decode([RemoteTag].self, from: data)
         guard let tag = tags.first(where: { $0.name == name }) else {
             throw RemoteLibraryError.server("标签不存在")
@@ -159,7 +160,7 @@ struct RemoteLibrary {
             url: serverURL.appending(path: "/v2/duplicates"),
             method: "GET"
         ))
-        try requireSuccess(response, data: data)
+        try requireSuccess(response)
         return try decoder.decode([DuplicateGroup].self, from: data)
     }
 
@@ -169,7 +170,7 @@ struct RemoteLibrary {
             url: SecureSession.resolve(thumbnail.contentPath, base: serverURL),
             method: "GET"
         ))
-        try requireSuccess(response, data: data)
+        try requireSuccess(response)
         return data
     }
 
@@ -215,16 +216,16 @@ struct RemoteLibrary {
         var request = try authorized(url: serverURL.appending(path: path), method: method)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = Data("{}".utf8)
-        let (data, response) = try await SecureSession.shared.data(for: request)
-        try requireSuccess(response, data: data)
+        let (_, response) = try await SecureSession.shared.data(for: request)
+        try requireSuccess(response)
     }
 
     private func sendJSON(path: String, method: String, body: [String: Any]) async throws {
         var request = try authorized(url: serverURL.appending(path: path), method: method)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, response) = try await SecureSession.shared.data(for: request)
-        try requireSuccess(response, data: data)
+        let (_, response) = try await SecureSession.shared.data(for: request)
+        try requireSuccess(response)
     }
 
     private func authorized(url: URL, method: String) throws -> URLRequest {
@@ -235,9 +236,10 @@ struct RemoteLibrary {
         return request
     }
 
-    private func requireSuccess(_ response: URLResponse, data: Data) throws {
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw RemoteLibraryError.server(String(decoding: data, as: UTF8.self))
+    private func requireSuccess(_ response: URLResponse) throws {
+        guard let http = response as? HTTPURLResponse else { throw RemoteLibraryError.server("服务器响应无效") }
+        guard (200..<300).contains(http.statusCode) else {
+            throw RemoteLibraryError.server("服务器请求失败（HTTP \(http.statusCode)）")
         }
     }
 }
@@ -249,6 +251,7 @@ private struct RemoteTag: Decodable {
 
 enum RemoteLibraryError: LocalizedError {
     case invalidURL
+    case invalidResponse
     case noPrimaryResource
     case invalidCursor
     case server(String)
@@ -256,6 +259,7 @@ enum RemoteLibraryError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidURL: "服务器地址无效"
+        case .invalidResponse: "服务器返回无效的图库数据"
         case .noPrimaryResource: "该资产没有可恢复的原始资源"
         case .invalidCursor: "服务器返回了无效的分页游标"
         case .server(let message): message.isEmpty ? "服务器请求失败" : message
