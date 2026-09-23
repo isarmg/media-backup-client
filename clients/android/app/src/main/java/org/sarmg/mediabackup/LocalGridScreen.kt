@@ -315,5 +315,5 @@ private fun LocalImage(context: Context, row: JSONObject, preview: Boolean, modi
         }.getOrNull() } }
     }
     Box(modifier) { bitmap?.let { Image(it.asImageBitmap(), row.getString("name"), Modifier.fillMaxSize(), contentScale = if (preview) ContentScale.Fit else ContentScale.Crop) }
-        ?: if (!preview) Text("预览待加载") }
+        if (bitmap == null && !preview) Text("预览待加载") }
 }

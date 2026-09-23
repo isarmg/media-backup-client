@@ -14,6 +14,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
@@ -336,7 +337,7 @@ internal fun RemoteImage(context: Context, api: BackupApi?, profile: String, ass
     Box(modifier) {
         bitmap?.let { Image(it.asImageBitmap(), asset.resources.firstOrNull()?.filename,
             Modifier.fillMaxSize(), contentScale = if (preview) ContentScale.Fit else ContentScale.Crop) }
-            ?: if (!preview) Text(if (error.isNotBlank()) error else if (asset.mediaKind == "video") "视频封面" else "暂无预览")
+        if (bitmap == null && !preview) Text(if (error.isNotBlank()) error else if (asset.mediaKind == "video") "视频封面" else "暂无预览")
     }
 }
 
