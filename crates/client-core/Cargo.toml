@@ -11,7 +11,7 @@ anyhow.workspace = true
 libc.workspace = true
 media-backup-crypto = { path = "../crypto" }
 media-backup-protocol = { git = "https://github.com/isarmg/media-backup-server.git", rev = "92ad37c4c771c38dcd0d3bbe722d4f94f18bfbe7", version = "=0.3.0" }
-sarmg-client-fs-safety = { git = "https://github.com/isarmg/sarmg-foundation-client.git", rev = "8890ced415793b144997ebb04728f52fbe3e7e59", version = "=0.9.15" }
+sarmg-client-fs-safety = { git = "https://github.com/isarmg/sarmg-foundation-client.git", rev = "9bf6eec21f42188c73105eef2f369bf47c8b8f86", version = "=0.9.16" }
 rusqlite.workspace = true
 serde.workspace = true
 serde_json.workspace = true

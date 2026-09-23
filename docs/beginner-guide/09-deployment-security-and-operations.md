@@ -11,7 +11,7 @@ Internet 只到 TLS reverse proxy；Axum 回环监听。Proxy、应用、SQLite�
 
 ## 不可变发行
 
-Client 正式归档由干净精确 `v0.4.14` tag 构建。工作流先核对 tag、根 `VERSION`、Android versionName、
+Client 正式归档由干净精确 `v0.4.15` tag 构建。工作流先核对 tag、根 `VERSION`、Android versionName、
 iOS MARKETING_VERSION 与固定的 Rust 合同版本，再生成签名 APK、未签名 IPA、身份清单和校验和；已有
 GitHub Release 不会被覆盖。
 

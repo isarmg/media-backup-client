@@ -1,6 +1,6 @@
 # Media Backup Client 配置指南
 
-本文适用于 Media Backup Client `0.4.14`。账号、授权码和备份偏好由 Android/iOS 应用管理；项目没有用于写入这些设置的命令行接口，也不支持用 `adb`、Plist 或 SQLite 直接注入配置。
+本文适用于 Media Backup Client `0.4.15`。账号、授权码和备份偏好由 Android/iOS 应用管理；项目没有用于写入这些设置的命令行接口，也不支持用 `adb`、Plist 或 SQLite 直接注入配置。
 
 ## 1. Server 准备
 
@@ -82,7 +82,7 @@ xcodebuild -project MediaBackup.xcodeproj -scheme MediaBackup \
   -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO test
 ```
 
-仓库 Release 提供的 `media-backup-ios-0.4.14-unsigned.ipa` 未签名，不能直接作为普通设备安装包。请使用自己的 Apple Developer 身份签名，再通过 Xcode、Apple Configurator 或受管理部署系统安装；仓库不保存或接收签名凭据。
+仓库 Release 提供的 `media-backup-ios-0.4.15-unsigned.ipa` 未签名，不能直接作为普通设备安装包。请使用自己的 Apple Developer 身份签名，再通过 Xcode、Apple Configurator 或受管理部署系统安装；仓库不保存或接收签名凭据。
 
 ## 5. iOS 配对与备份设置
 

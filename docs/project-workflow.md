@@ -105,7 +105,7 @@ MediaStore/PhotoKit 写入系统照片库。当前 Android/iOS 宿主会检查 H
 ## 8. 发行流程
 
 ```text
-干净 checkout + 精确 v0.4.14 tag
+干净 checkout + 精确 v0.4.15 tag
   -> 校验 tag、VERSION、Android versionName 与 iOS MARKETING_VERSION
   -> 运行 Rust、合同、供应链与移动平台测试
   -> Android 从受保护 Environment 取得全新 PKCS#12，assembleRelease
@@ -127,15 +127,15 @@ SQLite 主文件，也不能让产品自动猜测非当前状态。
 ## 10. Foundation Client 依赖流程
 
 ```text
-`sarmg-client.toml` 声明 Foundation platform generation 1、版本 0.9.15
-  -> `crates/mobile-ffi/Cargo.toml` 固定 `sarmg-mobile-ffi =0.9.15` 和完整 Git revision
+`sarmg-client.toml` 声明 Foundation platform generation 1、版本 0.9.16
+  -> `crates/mobile-ffi/Cargo.toml` 固定 `sarmg-mobile-ffi =0.9.16` 和完整 Git revision
   -> Cargo.lock 固定完整依赖图
   -> C/JNI 验收检查 ABI revision 2、长度边界、结果释放与 stale handle
   -> Android/iOS 宿主启动时再次核对 ABI revision
 ```
 
-当前依赖的是 Foundation Client 的 `sarmg-mobile-ffi =0.9.15`，Git revision 为
-`8890ced415793b144997ebb04728f52fbe3e7e59`。仓库没有管理 Web、npm 工作区或 Server Foundation 依赖。
+当前依赖的是 Foundation Client 的 `sarmg-mobile-ffi =0.9.16`，Git revision 为
+`9bf6eec21f42188c73105eef2f369bf47c8b8f86`。仓库没有管理 Web、npm 工作区或 Server Foundation 依赖。
 核心验证命令为：
 
 ```bash
