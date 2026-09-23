@@ -2,14 +2,14 @@
 
 应用 ID 为 `org.sarmg.mediabackup`，PKCS#12 alias 为 `media-backup-android-release`。
 当前发布证书 SHA-256 为 `0cfc2811d48cdeab3e6d857029d879e001ab9531c06784b4d48d15a847771421`。
-本次继续使用已有签名身份，不生成替代密钥、不发布 debug APK。
+正式 APK 使用这一固定签名身份；Debug APK 仅用于开发验证。
 
 GitHub 仓库 `isarmg/media-backup-client` 的 `android-signing` 环境保存两个 Secrets：
 
 - `MEDIA_BACKUP_ANDROID_SIGNING_PKCS12_BASE64`
 - `MEDIA_BACKUP_ANDROID_SIGNING_PKCS12_PASSWORD`
 
-本次经用户明确授权，环境部署规则新增且仅放行已审定的 `v0.3.2` 标签，保留现有规则。未来版本需先审查对应提交及发布工作流，再显式添加标签规则，不放行任意分支或 pull request。
+签名环境仅允许审定的发行标签；具体规则以 GitHub 环境配置为准。发布前需核对对应提交、发布工作流和标签准入，不放行任意分支或 pull request。
 私钥和密码不进入 Git、Release 附件或构建日志；发布任务只在临时目录生成权限受限的签名输入。
 
 正式流水线执行 `assembleRelease`，并使用 `apksigner` 验证签名、唯一证书及以上指纹；同时检查 application ID 和唯一 `arm64-v8a` 原生库。

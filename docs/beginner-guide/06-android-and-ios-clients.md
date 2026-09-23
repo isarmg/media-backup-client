@@ -18,12 +18,11 @@
 普通文件路径。
 
 `BackupScheduler` 配置 WorkManager 网络/电量策略，`BackupWorker` 驱动 Rust queue 与 `BackupApi`。
-Worker 重启时从 durable state 继续，不能仅依赖 Compose 内存状态。达到本轮 40 个新资源上限时不会全量
-替换远端相册成员；但 Android 14 selected-media grant 当前没有被标成“不完整扫描”，维护者必须知道它
-仍可能把不可见成员从相册关系中移除。
+Worker 重启时从 durable state 继续，不能仅依赖 Compose 内存状态。自动扫描一律使用
+`replace_members=false` 增量同步相册，部分授权或分批扫描不会移除本次未看到的远端成员。
 
 “从 durable state 继续”必须按状态理解：`ready` job 和带 `prepared_json` 的到期 `retry_wait` job 都会
-复用已经持久化的 part，不再读取已经删除的导出临时源；进程重启还会把带准备结果的 `preparing` 或
+复用已经持久化的 part，无需读取导出临时源；进程重启还会把带准备结果的 `preparing` 或
 `uploading` 恢复成 `ready`。没有准备结果的任务才回到 `discovered` 并重新读取源文件。每次准备写入新的
 generation，成功持久化后回收同一 job 的旧 generation；准备中途失败的未引用 generation 要等后续成功
 准备才能被回收。不能用清空整个 staging 的方式排障。
@@ -36,20 +35,20 @@ preference、database 或 staging。
 
 正式 application ID 是 `org.sarmg.mediabackup`，Kotlin 路径、namespace、JNI 导出名和 APK badging 必须
 同时一致。Debug APK 只用于 CI/开发，永远不取得正式 Secret；Release 使用受保护 Environment 中两个
-PKCS#12 Secret，并在发布前核对唯一 signer、固定证书指纹和唯一 `arm64-v8a` JNI。因为本项目不兼容旧
-代码，新 identity 不提供旧 package/证书的升级安装路径，也不保留旧 JNI 符号。
+PKCS#12 Secret，并在发布前核对唯一 signer、固定证书指纹和唯一 `arm64-v8a` JNI。安装包仅支持当前
+package/证书身份，JNI 仅导出当前 ABI 符号。
 
 ## iOS 扫描
 
 `PhotoScanner` 通过 PhotoKit fetch result 和授权范围读取 asset/album，必要时请求 resource stream。
-limited library 权限意味着可见集合会变化。当前扫描结果没有携带“非完整可见集”标志，而相册同步总是
-`replace_members=true`；因此隐藏于 limited grant 外的成员可能从远端相册关系中移除（媒体 asset 本身不
-会因此删除）。这是当前边界，不是已经解决的保障。
+limited library 权限下扫描只覆盖当前授权集合。相册同步固定为 `replace_members=false`，仅追加已备份
+成员；权限收缩或扫描批次边界不会触发远端成员删除。
 
 `BackupCoordinator` 管理扫描/队列/后台任务，`BackgroundUploader` 用 `taskDescription` 关联 URLSession
 task 与 durable job。当前 `AppDelegate` 只注册 BGProcessingTask，没有实现 background URLSession 的
 relaunch completion handoff；因此只能保证现有 delegate 生命周期内的回调，不能宣称杀进程后已闭环。
-另外 `runBackup` 在 part 仍由系统异步传输时就同步相册，新资产成员可能要到后续运行才能补齐。
+`BackgroundUploader.submit` 逐块等待上传回调并提交完成回执；自动扫描中的队列处理完成后同步相册。
+本轮尚未备份的资产成员可在后续运行中补齐。
 
 ## iOS Secret 与恢复
 
@@ -62,8 +61,8 @@ Token 存 Keychain。当前恢复路径检查 HTTP 成功并把临时下载文�
 
 当前 C ABI 为 Foundation revision 2：`mb_*_v2` 接收显式指针/长度和 `SarmgFfiResultV2` 输出，返回状态码。
 生成 Header 只有 `media_backup_ffi_v2.h`；结果中的字节和错误消息均有明确长度，必须通过
-`sarmg_ffi_result_free_v2` 释放整个结果，不能复制后重复释放。旧 NUL 字符串入口与线程局部错误已删除。
-Swift 通过 XCFramework 的 `MediaBackupRust` C module 导入 Header，不再使用手写 `_silgen_name`；
+`sarmg_ffi_result_free_v2` 释放整个结果，不能复制后重复释放。
+Swift 通过 XCFramework 的 `MediaBackupRust` C module 导入 Header；
 Kotlin 使用 `NativeBridgeV2`，JNI 失败抛出 Foundation 映射的异常，不把默认值当成功。两个宿主都先验证
 ABI revision；业务配置仍严格验证当前 product/version/revision/state_epoch，ABI revision 不等于状态 epoch。
 Rust panic 经共享边界转成 255，panic 内容不写入宿主日志；`panic=abort` 构建会被拒绝。

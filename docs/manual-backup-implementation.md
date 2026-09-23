@@ -1,9 +1,9 @@
-# media-backup 更新手册实施与验收记录
+# Media Backup 备份、图库与验收
 
-实施范围为用户确认的三个阶段。Android、iOS、Rust Client 和配套 Server 源码均已改造；
-移动状态契约更新为 Client 0.4.0。本文区分代码实现、已执行的自动化检查和需要设备执行的验收。
+本文描述 Android、iOS 和共享 Rust 核心的当前行为、配套 Server 接口及验证入口。
+应用发行版本为 `0.4.12`，移动状态契约版本为 `0.4.0`。
 
-## 第一阶段：手动备份与云端浏览
+## 手动备份与云端浏览
 
 | 要求 | 实现 |
 |---|---|
@@ -21,7 +21,7 @@
 | 分页云端图库 | 每页 100 项，惰性网格、asset_id 去重、重复游标拒绝；切换筛选重建分页，旧请求结果按代次丢弃 |
 | 查看与保存分开 | 私有图片缓存、缩放与左右切换；保存到系统照片库是单独动作，需要相应写入权限 |
 
-## 第二阶段：本地图库
+## 本地图库
 
 | 要求 | 实现 |
 |---|---|
@@ -38,7 +38,7 @@
 iOS 本地目录按当前选定的 PhotoKit 相册重建元数据视图，避免把一个资产错误地认定为只属于一个相册。
 上传队列、回执和自动排除独立于该视图，切换相册不会清除它们。
 
-## 第三阶段：规模与服务端增强
+## 增量缓存与服务端接口
 
 | 要求 | 实现 |
 |---|---|
@@ -47,42 +47,41 @@ iOS 本地目录按当前选定的 PhotoKit 相册重建元数据视图，避免
 | 首次快照 | 先 GET /v2/sync/head 捕获水位，再用 /v2/library/snapshot 按 UUID 升序分批走完整库（含回收站），最后消费该水位之后的事件；分页进度可以重开恢复 |
 | 首屏延迟 | 时间线首屏独立加载；元数据缓存每轮最多 10 页，在图库页面后台逐步构建，每 30 秒继续/刷新，不让首屏等待全库 |
 | 离线浏览 | 已保存的同账户、同查询页可离线读取，并标注“离线缓存”；未缓存的页不伪造数据 |
-| 全库筛选 | Server 时间线新增 media_kind、from_ms（含）、to_ms（不含）、device_id；两端 UI 传递服务端条件，分页与缓存键包含所有筛选 |
+| 全库筛选 | Server 时间线支持 media_kind、from_ms（含）、to_ms（不含）、device_id；两端 UI 传递服务端条件，分页与缓存键包含所有筛选 |
 | 设备列表 | /v2/devices 仅返回当前账户设备；默认云端时间线仍显示整个账户 |
 | 中等预览 | /v2/resources/{id}/preview 生成最长边 1600 的 JPEG，应用方向信息；服务端并发 2、解码预算 256 MiB、派生缓存 64 MiB；不改写备份原件 |
-| 旧备份回退 | 图片格式不支持预览时返回 415，客户端在预算内读取原件，超预算保留缩略图并提示保存到手机；缩略图、预览和原件缓存键分开 |
+| 原件回退 | 图片格式不支持预览时返回 415，客户端在预算内读取原件，超预算保留缩略图并提示保存到手机；缩略图、预览和原件缓存键分开 |
 | 视频读取 | 原始 content 接口支持单段 Range、206/416、Accept-Ranges、HEAD、ETag/If-None-Match/If-Range；流式读取字节窗口 |
 | 移动在线播放 | Android Media3 + 同源 OkHttp 数据源；iOS AVPlayer + AVAssetResourceLoader，通过受控 HTTPS 分段传输，支持播放器定位，关闭/切换时取消请求 |
 | SQL 批量查询 | 时间线/快照在一个读事务里选取 ID，批量装配资产、资源和标签，查询数不随单页资产数增长；批量标签成员变更为旧/新成员生成资产事件 |
 
 Android/iOS 的所有鉴权资源请求只接受同源 HTTPS，并禁止重定向；视频不把令牌放到 URL。
-本地数据库按服务器、用户名生成独立配置键，并在读取/写入云端缓存与上传前核对实际账户 ID。
-重新登录到同名但不同 ID 的账户会拒绝复用原配置记录，避免把旧队列或缓存混入新账户。
+配对后的本地数据库按服务器地址与设备实例 ID 生成独立配置键，并在读取/写入云端缓存与上传前核对
+服务器、账户 ID 和设备实例 ID。同实例轮换授权码复用该实例的队列；另一实例使用独立队列，绑定身份不匹配时拒绝复用。
 
 ## 版本与配套部署边界
 
-Client 为 `0.4.0` / `media-backup-mobile-v0.4-r1` / SQLite revision `2`，新增 C/JNI `transfer`。
-Foundation ABI 仍为 v2；长期设置保存域保留，新设备令牌独立注册以获取实际账户/设备 ID。
-旧移动数据库与队列不自动迁移，也不在产品启动路径内改写；离线升级边界仍属于 `sarmg-upgrade`。
+移动状态契约为 `0.4.0` / `media-backup-mobile-v0.4-r1` / SQLite revision `2`，C/JNI `transfer` 提供批次和图库操作。
+Foundation ABI 为 v2；配对取得设备令牌以及实际账户/设备实例 ID。
+不兼容的移动数据库与队列不会在产品启动路径内迁移或改写；离线升级属于 `sarmg-upgrade` 的边界。
 当前独立升级工具的 Server 支持矩阵不代表已支持移动队列迁移。
 
-配套 Server 改动保留 `/v2` 上传 DTO、存储编码和现有数据库 schema；新筛选、快照、预览是追加接口，
-客户端固定引用的现有 protocol 提交无须改为本地路径。第三阶段需要构建并运行本次配套服务端源码，
-现有已发布 Server 不会自动获得这些能力。本次不创建标签、不签名、不发布或部署。
+配套 Server 须支持 `/v2` 上传、筛选、快照和预览接口。协议依赖在 Cargo 清单和锁文件中固定到精确
+Git revision；Server 的安装和发布按独立 Server 仓库文档执行。
 
-## 已执行的验证
+## 自动化验证入口
 
-- Client Rust workspace：27 项测试（core 21、crypto 3、FFI 3）通过；Clippy `-D warnings`、格式检查通过。
-- Server Rust workspace：57 项测试（协议 3、服务端 54）通过。新增真实 SQLite + HTTP 集成验证全库筛选、快照、Range/HEAD/ETag、派生预览与跨账户拒绝。
-- Android Kotlin 编译与 6 项 JVM 单元测试通过；包含 HTTPS 同源和重定向拒绝。
-- C ABI、真实 JVM JNI、严格本地身份/schema、生成头文件与工作流供应链检查通过。
-- iOS 全部 21 个 Swift 文件完成语法解析与源码检查；此项不等于 Apple SDK 类型检查或 Xcode 构建。
+- Rust：`cargo fmt --all -- --check`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`。
+- Android：`gradle -p clients/android testDebugUnitTest assembleDebug`；系统集成验证使用 `scripts/test-android-emulator.sh`。
+- C/JNI：`scripts/test-mobile-ffi-c.sh`、`scripts/test-mobile-ffi-jni.sh`。
+- 移动契约与打包：`scripts/check-mobile-v02-contract.sh`、`scripts/check-workflow-supply-chain.sh`、`python3 scripts/test-package-ios-ipa.py`。
+- iOS：按[配置指南](configuration.md)使用 Xcode 构建和运行单元/UI 测试；语法检查不能替代 Apple SDK 类型检查。
 
-新增核心回归还覆盖：重复选择保留分块、进程重开恢复、共享批次取消、自动引用保留、
+核心回归覆盖：重复选择保留分块、进程重开恢复、共享批次取消、自动引用保留、
 私有副本删除后的重试、回执哈希拒绝、多资源未完成不误报、自动排除允许手动覆盖、
 账户 ID 不匹配拒绝、事件中途失败不推进序号、快照游标重开和冲突、空事件保留分页。
 
-## 设备验收（当前环境未执行）
+## 设备验收
 
 1. 关闭自动备份后只选择三张照片，确认只上传这三项及关联资源；手动视频不受自动照片规则阻止。
 2. 上传中重复选择、取消一个共享批次、杀进程和重启，确认剩余任务保留分块并恢复；权限失效有明确原因。
@@ -94,15 +93,14 @@ Foundation ABI 仍为 v2；长期设置保存域保留，新设备令牌独立�
 8. 清空浏览缓存不删除上传暂存；设置预算后检查磁盘占用；保存到手机与打开查看严格分开。
 
 正式发行版本检查要求已存在、指向 HEAD 的发行标签以及干净 checkout。
-0.4.0 已完成 GitHub CI 的 Android 16 模拟器测试、iOS 模拟器测试及真机 IPA 构建，
-并在 [Client v0.4.0](https://github.com/isarmg/media-backup-client/releases/tag/v0.4.0) 发布；下载附件的 SHA256 校验通过。
-系统后台调度、实机触控和视频解码兼容性仍需要真机验收。人脸识别、AI 分类、共享相册与复杂编辑不在本次范围。
+自动化检查结果以对应提交的 CI 为准。系统后台调度、实机触控和视频解码兼容性需要真机验收。
+应用不提供人脸识别、AI 分类、共享相册或复杂编辑。
 
-## iOS IPA 交付补充
+## iOS IPA 交付
 
-按后续要求，普通 CI 与正式 Release 都通过 `scripts/package-ios-ipa.py` 输出
-`media-backup-ios-0.4.0-unsigned.ipa`，内部为标准 `Payload/MediaBackup.app`，保留可执行权限、资源和包内符号链接。
-不再发布原有 `.app` 目录或 unsigned.tar.gz。当前未配置 Apple 发布签名，IPA 需要签名后才能安装。
+普通 CI 与正式 Release 通过 `scripts/package-ios-ipa.py` 输出
+`media-backup-ios-<版本>-unsigned.ipa`，内部为标准 `Payload/MediaBackup.app`，保留可执行权限、资源和包内符号链接。
+IPA 未配置 Apple 发布签名，需要自行签名后安装。
 
 打包测试使用临时测试包，验证 ZIP 布局/资源/权限和对模拟器包、错误版本/应用 ID、缺失二进制及越界符号链接的拒绝；
-这些测试不代表当前 Linux 环境已经产出实际 iOS 安装包。真实 IPA 由 macOS 工作流构建后生成。
+打包测试验证归档合同；实际 iOS 安装包由 macOS 工作流构建后生成。

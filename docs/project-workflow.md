@@ -10,8 +10,8 @@ Media Backup
 │  ├─ 运行契约、格式、Clippy、测试
 │  └─ CI 分别验证 Rust、Android、iOS 与发行归档
 ├─ 运行
-│  ├─ 管理员登录并创建普通用户
-│  ├─ 移动端登录、选择相册、扫描媒体
+│  ├─ 管理员登录并创建备份账户及设备实例
+│  ├─ 移动端使用实例授权码配对、选择相册、扫描媒体
 │  ├─ 本地队列分块上传并幂等提交
 │  ├─ 服务端维护时间线、组织和变更序列
 │  └─ 新设备分页下载并写回系统照片库
@@ -48,21 +48,21 @@ Media Backup
   -> POST /api/v2/auth/login {username,password}
   -> 精确 AdministratorSession + HttpOnly Cookie
   -> GET /api/v2/auth/session 轮换 CSRF
-  -> /api/v2/admin/* 创建普通备份用户
-  -> 手机 /v2/auth/bootstrap
+  -> /api/v2/admin/* 创建备份账户及设备实例
+  -> 手机 /v2/auth/bootstrap {authorization_code,device_name,platform}
   -> 设备 Token 安全存储
 ```
 
 浏览器、设备、API Key、指标 Token 是四条独立授权链。浏览器登录由 Foundation 根据真实 socket peer
 和规范化账户实施准入，并以并发上限和超时保护 Argon2；代理来源解析只属于产品移动业务授权链。
-这里的 `_sarmg_administrators.username` 只属于 Server 管理面；移动端登录继续使用 `accounts.username`，设备/API Key、
-移动队列 Schema、Android/iOS 请求和 FFI 均未改成管理身份，也不会因同名而获得 Administrator 权限。
+这里的 `_sarmg_administrators.username` 只属于 Server 管理面；移动端使用设备实例授权码配对并取得
+设备 Token。设备/API Key 与管理员身份独立，不能互换凭据。
 
 ## 4. 扫描与入队
 
-Android 通过 MediaStore、iOS 通过 PhotoKit 读取用户授权范围。扫描结果经过相册选择/排除规则；Android
-达到本轮新资源上限时会关闭 `replace_members`，但 Android selected-media 与 iOS limited 权限当前都没有
-形成可传给 Server 的“可见集不完整”证明，仍可能移除不可见的相册成员关系。原始媒体和缩略图形成资源
+Android 通过 MediaStore、iOS 通过 PhotoKit 读取用户授权范围。扫描结果经过相册选择/排除规则；两端
+自动扫描均固定使用 `replace_members=false` 增量同步，部分授权或分批扫描不会移除未看到的远端成员。
+原始媒体和缩略图形成资源
 描述后，任务先写入 `client-v0.4-r1.sqlite`，staging 使用 `backup-staging-v0.4-r1`，然后才交给系统后台调度。
 
 这里的“持久队列”不是无条件恢复保证。`ready` 与带 `prepared_json` 的到期 `retry_wait` 会直接复用

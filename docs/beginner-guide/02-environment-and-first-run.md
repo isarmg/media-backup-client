@@ -37,13 +37,13 @@ curl --fail http://127.0.0.1:8080/healthz
 
 1. 浏览器打开 `/admin`。
 2. 使用全新数据库初始化的管理员登录。
-3. 创建一个普通用户，不让移动端使用管理员身份。
-4. 移动端配置 HTTPS 服务地址和普通用户凭据。
+3. 创建备份账户及设备实例，并复制实例授权码。
+4. 移动端配置 HTTPS 服务地址，使用实例授权码配对。
 5. 授予系统照片权限、选择相册、启动一次扫描。
 6. 在服务端确认资产、对象和审计，再在另一设备恢复测试媒体。
 
-第 2 步的管理 username 只供 `/api/v2/auth/*`；第 3–5 步的普通账户继续使用 `accounts.username` 与
-移动端 `/v2` 合同。不要把管理员密码填入 Android/iOS，也不要因为两个 username 同名而把它们视为同一身份。
+第 2 步的管理 username 只供 `/api/v2/auth/*`；第 3–5 步通过移动端 `/v2/auth/bootstrap` 换取设备 Token。
+Android/iOS 仅填写设备实例授权码，管理员用户名和密码不能用于设备配对。
 
 ## Android 构建
 
@@ -55,7 +55,7 @@ gradle -p clients/android testDebugUnitTest assembleDebug
 ```
 
 构建脚本必须生成 `libmedia_backup_mobile.so`；Kotlin namespace 与 application ID 都是
-`org.sarmg.mediabackup`。`jniLibs` 只允许放置本次从当前 Rust workspace 生成的正式 ABI 文件。
+`org.sarmg.mediabackup`。`jniLibs` 只允许放置从当前 Rust workspace 生成的正式 ABI 文件。
 这个本地命令只验证 Debug 构建。正式 `assembleRelease` 必须显式提供当前 PKCS#12 路径和密码；开发者
 机器没有正式 Secret 时应当失败，不能自动落回 Debug key。证书 alias、SHA-256 和 APK application ID 由
 release workflow 再次独立验证。
