@@ -19,6 +19,8 @@ final class BackupCoordinator: ObservableObject {
     @Published var autoBackup = MobileContractV02.preferences.bool(forKey: "auto_backup")
     @Published var wifiOnly = (MobileContractV02.preferences.object(forKey: "wifi_only") as? Bool) ?? true
     @Published var chargingOnly = MobileContractV02.preferences.bool(forKey: "charging_only")
+    @Published var backupPhotos = (MobileContractV02.preferences.object(forKey: "backup_photos") as? Bool) ?? true
+    @Published var backupVideos = (MobileContractV02.preferences.object(forKey: "backup_videos") as? Bool) ?? true
     @Published var albums: [PhotoAlbum] = []
     @Published var selectedAlbumIds = Set(MobileContractV02.preferences.stringArray(forKey: "selected_album_ids") ?? [])
     @Published var remoteAssets: [RemoteAsset] = []
@@ -63,24 +65,26 @@ final class BackupCoordinator: ObservableObject {
     }
     func saveSettings() {
         do {
-            guard let url = URL(string: serverURL), url.scheme == "https", url.host != nil,
-                url.user == nil, url.password == nil, url.path.isEmpty || url.path == "/",
-                url.query == nil, url.fragment == nil, !authorizationCode.isEmpty else {
-                throw CoordinatorFailure.message("请输入 HTTPS 根地址和实例授权码")
+            guard !autoBackup || (backupPhotos || backupVideos) else {
+                throw CoordinatorFailure.message("自动备份至少选择一种媒体类型")
             }
-            let changed = MobileContractV02.preferences.string(forKey: "server_url") != serverURL
-                || KeychainStore.load("authorization_code") != authorizationCode
-            if changed {
-                MobileContractV02.preferences.removeObject(forKey: "queue_profile_v04")
+            guard !autoBackup || !selectedAlbumIds.isEmpty else {
+                throw CoordinatorFailure.message("请先选择自动备份相册")
             }
-            if changed { KeychainStore.delete(MobileContractV02.tokenKey) }
-            MobileContractV02.preferences.set(serverURL, forKey: "server_url")
-            try KeychainStore.save(authorizationCode, for: "authorization_code")
+            let previousWifiOnly = (MobileContractV02.preferences.object(forKey: "wifi_only") as? Bool) ?? true
             MobileContractV02.preferences.set(autoBackup, forKey: "auto_backup")
             MobileContractV02.preferences.set(wifiOnly, forKey: "wifi_only")
             MobileContractV02.preferences.set(chargingOnly, forKey: "charging_only")
-            status = "设置已保存"
-            if autoBackup { scheduleBackgroundRun() }
+            MobileContractV02.preferences.set(backupPhotos, forKey: "backup_photos")
+            MobileContractV02.preferences.set(backupVideos, forKey: "backup_videos")
+            MobileContractV02.preferences.set(Array(selectedAlbumIds), forKey: "selected_album_ids")
+            if previousWifiOnly != wifiOnly { stopTransfers() }
+            status = "备份偏好已保存"
+            if autoBackup && !authorizationCode.isEmpty {
+                scheduleBackgroundRun()
+            } else {
+                BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: MobileContractV02.processingTask)
+            }
         } catch { status = error.localizedDescription }
     }
     func login(server: String, authorizationCode: String) async throws {
@@ -112,7 +116,7 @@ final class BackupCoordinator: ObservableObject {
         stores[newProfile] = targetStore
         library = RemoteLibrary(serverURL: credentials.server, token: response.bearerToken)
         status = "备份实例已配对"
-        if autoBackup { scheduleBackgroundRun() }
+        if MobileContractV02.preferences.bool(forKey: "auto_backup") { scheduleBackgroundRun() }
     }
     func refreshAlbums() async {
         let authorization = await PhotoScanner().requestAccess()
@@ -123,7 +127,6 @@ final class BackupCoordinator: ObservableObject {
     }
     func setAlbum(_ id: String, enabled: Bool) {
         if enabled { selectedAlbumIds.insert(id) } else { selectedAlbumIds.remove(id) }
-        MobileContractV02.preferences.set(Array(selectedAlbumIds), forKey: "selected_album_ids")
     }
     func refreshTransfers() {
         do { batches = try store().batches() }
@@ -281,7 +284,7 @@ final class BackupCoordinator: ObservableObject {
             try store.client.transfer(["op": "bind", "server": serverURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")), "account_id": KeychainStore.load("account_id_v04") ?? "",
                 "device_id": KeychainStore.load("device_id_v04") ?? ""])
             let upload = uploader ?? BackgroundUploader(client: store.client, serverURL: connection.serverURL, token: connection.token,
-                profile: identity, wifiOnly: wifiOnly)
+                profile: identity, wifiOnly: (MobileContractV02.preferences.object(forKey: "wifi_only") as? Bool) ?? true)
             uploader = upload
             var processed = 0
             func checkCurrent() throws {
@@ -331,10 +334,17 @@ final class BackupCoordinator: ObservableObject {
                     }
                 }
             }
-            if automatic && autoBackup {
+            if automatic && MobileContractV02.preferences.bool(forKey: "auto_backup") {
                 let access = PHPhotoLibrary.authorizationStatus(for: .readWrite)
                 guard access == .authorized || access == .limited else { throw CoordinatorFailure.message("自动扫描需要重新授权访问") }
-                let scan = try await PhotoScanner().scan(store: store, selectedAlbumIds: selectedAlbumIds, drain: drain)
+                let preferences = MobileContractV02.preferences
+                let selected = Set(preferences.stringArray(forKey: "selected_album_ids") ?? [])
+                guard !selected.isEmpty else { throw CoordinatorFailure.message("请在设置中选择自动备份相册") }
+                let includePhotos = (preferences.object(forKey: "backup_photos") as? Bool) ?? true
+                let includeVideos = (preferences.object(forKey: "backup_videos") as? Bool) ?? true
+                guard includePhotos || includeVideos else { throw CoordinatorFailure.message("请在设置中选择自动备份媒体类型") }
+                let scan = try await PhotoScanner().scan(store: store, selectedAlbumIds: selected,
+                    includePhotos: includePhotos, includeVideos: includeVideos, drain: drain)
                 for (id, album) in scan.albums { try await upload.syncAlbum(id: id, name: album.name, assetIds: album.assetIds) }
             }
             try await drain()
@@ -349,9 +359,12 @@ final class BackupCoordinator: ObservableObject {
         return false
     }
     private func scheduleBackgroundRun() {
+        let preferences = MobileContractV02.preferences
+        guard preferences.bool(forKey: "auto_backup"), !authorizationCode.isEmpty,
+            !(preferences.stringArray(forKey: "selected_album_ids") ?? []).isEmpty else { return }
         let request = BGProcessingTaskRequest(identifier: MobileContractV02.processingTask)
         request.requiresNetworkConnectivity = true
-        request.requiresExternalPower = chargingOnly
+        request.requiresExternalPower = preferences.bool(forKey: "charging_only")
         request.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60)
         try? BGTaskScheduler.shared.submit(request)
     }
@@ -359,7 +372,6 @@ final class BackupCoordinator: ObservableObject {
         guard let base = URL(string: serverURL), base.scheme == "https", base.host != nil,
             base.user == nil, base.password == nil, base.path.isEmpty || base.path == "/", base.query == nil,
             base.fragment == nil, !authorizationCode.isEmpty else { throw CoordinatorFailure.message("请先保存有效的 HTTPS 服务器和实例授权码") }
-        saveSettings()
         guard let bearer = KeychainStore.load(MobileContractV02.tokenKey), !bearer.isEmpty else {
             throw CoordinatorFailure.message("客户端需要使用当前实例授权码重新配对")
         }

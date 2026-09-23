@@ -133,7 +133,7 @@ class NativeStorageInstrumentedTest {
         val paths = storage()
         val retained = File(paths.staging, "retained")
         retained.writeText("unchanged")
-        Os.chmod(paths.staging.path, 0x1ed) // 0755: old Java mkdirs mode
+        Os.chmod(paths.staging.path, 0x1ed) // Existing owned staging directory with permissive mode.
         storage()
         assertEquals(0x1c0, Os.stat(paths.staging.path).st_mode and 0x1ff)
         assertEquals("unchanged", retained.readText())

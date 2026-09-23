@@ -39,7 +39,8 @@ struct PhotoScanner {
         return result.sorted { $0.count == $1.count ? $0.name < $1.name : $0.count > $1.count }
     }
 
-    func scan(store: TransferStore, selectedAlbumIds: Set<String>, drain: () async throws -> Void) async throws -> PhotoScanResult {
+    func scan(store: TransferStore, selectedAlbumIds: Set<String>, includePhotos: Bool, includeVideos: Bool,
+        drain: () async throws -> Void) async throws -> PhotoScanResult {
         let available = albums()
         let selected = selectedAlbumIds
         var assetsById: [String: PHAsset] = [:]
@@ -50,6 +51,9 @@ struct PhotoScanner {
             let assets = PHAsset.fetchAssets(in: collection, options: nil)
             var ids = Set<String>()
             assets.enumerateObjects { asset, _, _ in
+                if asset.mediaType == .image && !includePhotos { return }
+                if asset.mediaType == .video && !includeVideos { return }
+                if asset.mediaType != .image && asset.mediaType != .video { return }
                 assetsById[asset.localIdentifier] = asset
                 ids.insert(asset.localIdentifier)
             }

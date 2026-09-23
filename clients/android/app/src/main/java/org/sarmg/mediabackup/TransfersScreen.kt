@@ -74,7 +74,7 @@ internal fun TransfersScreen(context: Context, config: SecureConfig, profile: St
                 var expanded by remember(batch.getString("id")) { mutableStateOf(false) }
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp)) {
-                        Text(if (batch.getBoolean("cancelled")) "已取消的批次" else "照片备份", style = MaterialTheme.typography.titleSmall)
+                        Text(if (batch.getBoolean("cancelled")) "已取消的批次" else "媒体备份", style = MaterialTheme.typography.titleSmall)
                         Text("${batch.getInt("complete")} / ${batch.getInt("items")} 项完成", style = MaterialTheme.typography.bodySmall)
                         if (batch.getBoolean("cancelled")) Text("已取消本次上传")
                         LinearProgressIndicator(progress = { (batch.getInt("complete").toFloat() / batch.getInt("items").coerceAtLeast(1)).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp))

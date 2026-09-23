@@ -76,6 +76,9 @@ struct ContentView: View {
         return coordinator.autoBackup != preferences.bool(forKey: "auto_backup")
             || coordinator.wifiOnly != ((preferences.object(forKey: "wifi_only") as? Bool) ?? true)
             || coordinator.chargingOnly != preferences.bool(forKey: "charging_only")
+            || coordinator.backupPhotos != ((preferences.object(forKey: "backup_photos") as? Bool) ?? true)
+            || coordinator.backupVideos != ((preferences.object(forKey: "backup_videos") as? Bool) ?? true)
+            || coordinator.selectedAlbumIds != Set(preferences.stringArray(forKey: "selected_album_ids") ?? [])
     }
     private func selectionConfirmation(_ selection: [PHPickerResult]) -> some View {
         let selectedVideos = selection.filter { $0.itemProvider.hasItemConformingToTypeIdentifier(UTType.movie.identifier) }.count
@@ -127,7 +130,7 @@ struct ContentView: View {
                         }.buttonStyle(.borderless)
                     } label: {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text(batch.cancelled ? "已取消的批次" : "照片备份").font(.headline)
+                            Text(batch.cancelled ? "已取消的批次" : "媒体备份").font(.headline)
                             ProgressView(value: Double(batch.complete), total: Double(max(1, batch.count)))
                             Text("\(batch.complete) / \(batch.count) 项完成").font(.caption).foregroundStyle(.secondary)
                         }.padding(.vertical, 6)
@@ -179,6 +182,8 @@ struct ContentView: View {
                 Toggle("自动备份", isOn: $coordinator.autoBackup)
                 Toggle("仅 Wi-Fi 上传", isOn: $coordinator.wifiOnly)
                 Toggle("后台仅充电时运行", isOn: $coordinator.chargingOnly)
+                Toggle("自动备份照片", isOn: $coordinator.backupPhotos)
+                Toggle("自动备份视频", isOn: $coordinator.backupVideos)
                 if backupPreferencesChanged {
                     Label("备份偏好已修改，保存后生效。", systemImage: "info.circle")
                         .font(.footnote).foregroundStyle(.secondary)

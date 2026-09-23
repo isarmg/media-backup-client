@@ -10,7 +10,7 @@ struct BackupDirectoryRegression {
         let alias = URL(fileURLWithPath: String(resolved.path.dropFirst("/private".count)), isDirectory: true)
         let rejected = Darwin.open(alias.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW_ANY)
         if rejected >= 0 { Darwin.close(rejected) }
-        precondition(rejected < 0, "strict native check must reproduce the old alias failure")
+        precondition(rejected < 0, "strict native check must reject an unresolved /var alias")
         let fixed = try BackupDirectory.canonicalSystemDirectory(alias)
         precondition(fixed.path == resolved.path, "kernel path must retain /private")
         let accepted = Darwin.open(fixed.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW_ANY)
@@ -20,6 +20,6 @@ struct BackupDirectoryRegression {
         try Data("preserved".utf8).write(to: file)
         let readBack = try Data(contentsOf: alias.appendingPathComponent("preserved.txt"))
         precondition(readBack == Data("preserved".utf8))
-        print("Swift /var alias: old native path rejected, kernel path accepted, existing data preserved")
+        print("Swift /var alias: unresolved path rejected, canonical path accepted, data preserved")
     }
 }
