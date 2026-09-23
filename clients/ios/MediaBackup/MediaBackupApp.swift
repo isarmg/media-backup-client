@@ -24,8 +24,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         ) { task in
             guard let processing = task as? BGProcessingTask else { return }
             let work = Task {
-                await BackupCoordinator.shared.runBackup(automatic: BackupCoordinator.shared.autoBackup)
-                processing.setTaskCompleted(success: !Task.isCancelled)
+                let succeeded = await BackupCoordinator.shared.runBackup(automatic: BackupCoordinator.shared.autoBackup)
+                processing.setTaskCompleted(success: succeeded && !Task.isCancelled)
             }
             processing.expirationHandler = {
                 work.cancel()

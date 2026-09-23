@@ -250,8 +250,9 @@ final class BackupCoordinator: ObservableObject {
             await refreshLibrary()
         } catch { status = error.localizedDescription }
     }
-    func runBackup(automatic: Bool = false, selection: [PHPickerResult] = []) async {
-        guard !running else { return }
+    @discardableResult
+    func runBackup(automatic: Bool = false, selection: [PHPickerResult] = []) async -> Bool {
+        guard !running else { return false }
         running = true
         let identity = profile
         let generation = credentialGeneration
@@ -335,11 +336,13 @@ final class BackupCoordinator: ObservableObject {
             try await drain()
             status = "本轮处理结束；逐项结果见传输列表"
             scheduleBackgroundRun()
+            return true
         } catch is CancellationError {
             status = "传输已中断，批次仍保留"
         } catch {
             if identity == profile { status = "等待处理：\(error.localizedDescription)"; scheduleBackgroundRun() }
         }
+        return false
     }
     private func scheduleBackgroundRun() {
         let request = BGProcessingTaskRequest(identifier: MobileContractV02.processingTask)

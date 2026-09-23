@@ -159,7 +159,7 @@ React 管理页、配置与 systemd、发行 identity/manifest、CI/脚本、正
 | MED-D-008 | 全局 Kotlin Mutex 防止同进程两个 BackupWorker 同时驱动同一 Client | `backupMutex` | 保障 | 中 | 队列状态和 stage 可被并发宿主交错 | 自动+手动同时触发、取消后解锁 |
 | MED-D-009 | WorkManager 支持立即、周期、Wi-Fi-only、charging-only 与取消 | `BackupScheduler.kt` | 建议保留 | 高 | 只能前台手动备份，可靠性显著下降 | constraints、unique work、配置变更、stop |
 | MED-D-010 | 长任务以前台 dataSync notification 发布阶段、项目和进度 | `createForegroundInfo` | 保障 | 中 | 新 Android 会限制后台运行，用户也看不到占用 | notification permission/channel、API 29+ type、取消 |
-| MED-D-011 | BackupApi 要求 endpoint 字符串以 `https://` 开头，使用 Bearer 请求 bootstrap/upload/library，并设置 30 秒连接、10 分钟读写 timeout | `BackupApi.kt` | 核心 | 高 | Android 无法与 Server 互操作 | status/body/JSON、token、timeout、TLS failure；已要求 HTTPS 根地址、精确同源并禁止重定向 |
+| MED-D-011 | BackupApi 校验 HTTPS 根地址，bootstrap 使用实例授权码，upload/library 使用 Bearer token；连接超时 30 秒、读写超时 10 分钟 | `BackupApi.kt` | 核心 | 高 | Android 无法与 Server 互操作 | status/body/JSON、token、timeout、TLS failure；HTTPS 根地址、精确同源并禁止重定向 |
 | MED-D-012 | 上传只发送 Server 返回的 missing parts，每块成功后持久化 Client checkpoint | `BackupWorker::uploadJob` | 保障 | 高 | 断线后完整重传，或本地误标已上传 | missing subset、part failure、complete failure |
 | MED-D-013 | 自动扫描一律使用 `replace_members=false` 增量同步；手动选择不替换相册成员 | `scan.limitReached`、`syncAlbum` | 保障 | 高 | 分批扫描会错误清空未遍历成员 | 分批/部分访问、空相册、手动子集不移除已有成员 |
 | MED-D-014 | RemoteLibrary 分页 timeline、筛选、增量缓存、恢复到 MediaStore，并按可见区域读取 thumbnail | `RemoteLibrary.kt`、`GalleryCache.kt`、`CloudGalleryScreen.kt` | 核心 | 高 | 用户无法浏览或取回备份 | 多页、cursor、sync、下载、权限；当前只检查 `plain-v1`/HTTP，不做恢复后 BLAKE3 校验；资源地址强制 HTTPS 同源且禁止重定向 |
@@ -173,15 +173,15 @@ React 管理页、配置与 systemd、发行 identity/manifest、CI/脚本、正
 | MED-I-001 | SwiftUI 提供配置、相册选择、备份进度、时间线、整理和恢复 UI | `ContentView.swift`、`BackupCoordinator` | 建议保留 | 高 | Rust Client/网络层仍在但没有可用产品入口 | 首次配置、permission、loading/error、空图库 |
 | MED-I-002 | 实例授权码/token 使用 Keychain；普通 UserDefaults 只保存 endpoint/偏好/cursor | `KeychainStore.swift`、`BackupCoordinator` | 保障 | 高 | Secret 进入普通偏好/设备备份，或偏好丢失导致体验下降 | 存取/覆盖/删除、重启、Keychain error |
 | MED-I-003 | PhotoKit 请求 read-write 权限；authorized 与 limited 都进入当前扫描流程 | `PhotoScanner::requestAccess` | 保障 | 高 | 无法扫描或越过用户授权预期 | authorized/limited/denied/restricted；UI 可见集合不是完整库证明 |
-| MED-I-004 | PhotoKit 枚举当前可见相册与成员，按选定集合形成 membership | `PhotoScanner::albums/scan` | 核心 | 高 | 无法保留相册结构或控制范围 | smart/user albums、重复 asset、空 album；limited 结果当前没有“非完整”标志 |
+| MED-I-004 | PhotoKit 枚举当前可见相册与成员，按选定集合形成 membership，固定使用 `replace_members=false` 增量同步 | `PhotoScanner::albums/scan`、`BackgroundUploader::syncAlbum` | 核心 | 高 | 无法保留相册结构或控制范围 | smart/user albums、重复 asset、空 album；limited 和分批扫描不移除未见成员 |
 | MED-I-005 | PHAssetResource 原始字节允许从 iCloud 下载到临时源 | `PhotoScanner::export` | 核心 | 高 | iCloud-only 媒体无法备份 | network allowed、下载失败、取消、临时文件 |
 | MED-I-006 | iOS 设备生成 512×512 高质量 JPEG thumbnail 并作为独立 `thumbnail` resource | `PhotoScanner::thumbnail` | 建议保留 | 中 | 远端列表仍可取原图但预览代价显著上升 | degraded callback、error、无 image、metadata role |
 | MED-I-007 | Background URLSession 上传 part，并用 taskDescription 绑定 job/upload/index | `BackgroundUploader.swift` | 建议保留 | 高 | App 退到后台后传输更易中断，或 callback 无法回到 job | 当前 delegate 活着时 mapping/HTTP/file failure；进程重启事件接管尚未实现，不能声称 relaunch 闭环 |
 | MED-I-008 | bootstrap/complete/album 请求使用当前 JSON identity 与 Bearer token | `BackgroundUploader`、`MobileContractV02` | 核心 | 高 | iOS 与 Server/Client 合同分叉 | exact JSON、错误 envelope、token 缺失 |
-| MED-I-009 | BackupCoordinator 串行扫描、最多取 24 个 Client job，并把 part 提交给 background session 后同步相册和发布状态 | `runBackup` | 核心 | 高 | UI 与后台组件无法形成完整旅程 | part 仍在飞行时 album sync 只关联 Server 已有 asset；后续 run 才可能补齐，不能称为提交完成后的原子同步 |
+| MED-I-009 | BackupCoordinator 串行扫描，本轮最多处理 60 个 Client job；逐块等待 background session 回调并提交资源回执，自动扫描后增量同步相册 | `runBackup`、`BackgroundUploader::submit` | 核心 | 高 | UI 与后台组件无法形成完整旅程 | 分块失败、额度上限和取消；本轮未备份的资产成员在后续运行补齐 |
 | MED-I-010 | RemoteLibrary 提供分页 timeline、筛选、增量缓存、收藏归档、标签、trash 和恢复到 Photos | `RemoteLibrary.swift`、`GallerySynchronizer.swift`、`BackupCoordinator.swift` | 核心 | 高 | 备份只能写不能查/恢复 | 多页、cursor、sync、下载、Photos write permission |
 | MED-I-011 | 恢复选择 primary resource，把 HTTP 下载临时文件交给 PhotoKit 创建 asset | `restoreToPhotos` | 核心 | 高 | 核心“恢复”目标消失 | 无 primary、下载失败、照片/视频、权限；当前未接入 size/BLAKE3 校验 |
-| MED-I-012 | AppDelegate 注册 BGProcessingTask，expiration 会取消 Swift Task | `MediaBackupApp.swift` | 保障 | 中 | 删除后 iOS 不会按系统时机继续调度备份 | 当前未实现 `handleEventsForBackgroundURLSession`；`runBackup` 内部吞掉业务错误且外层仍报告 success，expiration 与正常结束也需防重复 completion |
+| MED-I-012 | AppDelegate 注册 BGProcessingTask，expiration 取消 Swift Task；本轮返回成功且未取消时报告 success，业务错误或已有运行任务时报告失败 | `MediaBackupApp.swift`、`BackupCoordinator::runBackup` | 保障 | 中 | 删除后 iOS 不会按系统时机继续调度备份 | 业务失败、并发触发、expiration；当前未实现 `handleEventsForBackgroundURLSession` |
 | MED-I-013 | iOS application、测试 target、BGTask、Keychain、preferences 与 upload session 均位于唯一 `org.sarmg.mediabackup` 当前命名空间 | `project.yml`、`MobileContractV02.swift` | 保障 | 中 | bundle 与持久域分叉，或继续依赖开发占位 identity | xcodegen/plist；bundle IDs；BGTask；Keychain/preferences；源码无开发占位 namespace |
 
 ## 9. React/Vite Administrator Web
