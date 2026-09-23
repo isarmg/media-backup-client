@@ -366,6 +366,7 @@ final class BackupCoordinator: ObservableObject {
         request.requiresNetworkConnectivity = true
         request.requiresExternalPower = preferences.bool(forKey: "charging_only")
         request.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60)
+        BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: MobileContractV02.processingTask)
         try? BGTaskScheduler.shared.submit(request)
     }
     func remoteLibrary() async throws -> RemoteLibrary {
