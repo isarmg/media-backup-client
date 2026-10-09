@@ -197,6 +197,7 @@ struct VideoPlayback: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("video.preview")
         .preferredColorScheme(.dark)
         .task(id: autoHideKey) {

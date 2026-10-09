@@ -279,6 +279,7 @@ struct LocalGalleryScreen: View {
                         } header: {
                             HStack {
                                 Text(day, style: .date).font(.subheadline.bold())
+                                    .accessibilityAddTraits(.isHeader)
                                     .accessibilityIdentifier("gallery.date.\(Int(day.timeIntervalSince1970))")
                                 Spacer()
                                 if isSelecting {
@@ -290,6 +291,8 @@ struct LocalGalleryScreen: View {
                                         .accessibilityIdentifier("gallery.select-day.\(Int(day.timeIntervalSince1970))")
                                 }
                             }.padding(.vertical, 10).background(Color(uiColor: .systemBackground))
+                                .accessibilityElement(children: .contain)
+                                .accessibilityIdentifier("gallery.section.\(Int(day.timeIntervalSince1970))")
                         }
                     }
                 }

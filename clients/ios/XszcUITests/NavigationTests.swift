@@ -134,9 +134,14 @@ final class NavigationTests: XCTestCase {
         XCTAssertFalse(app.buttons["account.open"].exists)
         requestPhotoAccess(app)
         screenshot("local-gallery-loading")
-        let photo = app.descendants(matching: .any).matching(identifier: "media.tile.layout-photo-1.png").firstMatch
+        // The complete directory contains hundreds of photos. Exercise the
+        // first visible photo instead of assuming a named fixture is on screen.
+        let photo = app.descendants(matching: .any).matching(NSPredicate(
+            format: "identifier BEGINSWITH %@ AND identifier ENDSWITH %@", "media.tile.", ".png")).firstMatch
         XCTAssertTrue(photo.waitForExistence(timeout: 15))
         XCTAssertTrue(photo.isHittable)
+        let photoIdentifier = photo.identifier
+        let selectionIdentifier = photoIdentifier.replacingOccurrences(of: "media.tile.", with: "media.select.")
         photo.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         let preview = app.descendants(matching: .any).matching(identifier: "gallery.preview").firstMatch
         XCTAssertTrue(preview.waitForExistence(timeout: 5))
@@ -145,15 +150,15 @@ final class NavigationTests: XCTestCase {
         preview.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         let selectMode = app.buttons["gallery.select"]
         XCTAssertTrue(selectMode.waitForExistence(timeout: 30))
-        XCTAssertFalse(app.buttons["media.select.layout-photo-1.png"].exists)
+        XCTAssertFalse(app.buttons[selectionIdentifier].exists)
         let filterHeight = app.buttons["gallery.filter"].frame.height
         selectMode.tap()
         XCTAssertEqual(app.buttons["gallery.filter"].frame.height, filterHeight, accuracy: 1)
         XCTAssertGreaterThan(app.buttons["gallery.select-all"].frame.midX, app.frame.midX)
         XCTAssertGreaterThan(app.buttons["gallery.cancel-selection"].frame.midX, app.frame.midX)
-        let selection = app.buttons["media.select.layout-photo-1.png"]
+        let selection = app.buttons[selectionIdentifier]
         XCTAssertTrue(selection.waitForExistence(timeout: 30), app.debugDescription)
-        let tile = app.descendants(matching: .any).matching(identifier: "media.tile.layout-photo-1.png").firstMatch
+        let tile = app.descendants(matching: .any).matching(identifier: photoIdentifier).firstMatch
         XCTAssertTrue(tile.exists)
         XCTAssertGreaterThan(selection.frame.midX, tile.frame.midX)
         XCTAssertLessThan(selection.frame.midY, tile.frame.midY)
@@ -338,20 +343,27 @@ final class NavigationTests: XCTestCase {
 
     @MainActor private func pinchGallery(_ app: XCUIApplication, scale: CGFloat, velocity: CGFloat) {
         // The ScrollView extends behind the floating glass tab bar. Pinching
-        // its entire AX frame can touch a tab, so use a photo inside the
-        // unobstructed viewport, or the smaller grid when fully visible.
+        // its entire AX frame can touch a tab. Small thumbnails also leave
+        // too little room for XCTest's two fingers; use a wide date header
+        // inside the unobstructed viewport once photos become small.
         let top = app.buttons["gallery.filter"].frame.maxY + 8
         let bottom = app.tabBars.firstMatch.frame.minY - 8
         let photos = app.descendants(matching: .any)
             .matching(NSPredicate(format: "identifier BEGINSWITH %@", "media.tile.")).allElementsBoundByIndex
         if let photo = photos.first(where: {
-            $0.frame.width > 32 && $0.frame.minY >= top && $0.frame.maxY <= bottom
+            $0.frame.width >= 100 && $0.frame.minY >= top && $0.frame.maxY <= bottom
         }) {
             photo.pinch(withScale: scale, velocity: velocity)
         } else {
-            let grid = app.descendants(matching: .any).matching(identifier: "gallery.grid").firstMatch
-            XCTAssertLessThanOrEqual(grid.frame.maxY, bottom)
-            grid.pinch(withScale: scale, velocity: velocity)
+            let headers = app.descendants(matching: .any)
+                .matching(NSPredicate(format: "identifier BEGINSWITH %@", "gallery.section.")).allElementsBoundByIndex
+            guard let header = headers.first(where: {
+                $0.frame.width >= 200 && $0.frame.minY >= top && $0.frame.maxY <= bottom
+            }) else {
+                XCTFail("No unobstructed gallery pinch target: \(app.debugDescription)")
+                return
+            }
+            header.pinch(withScale: scale, velocity: velocity)
         }
     }
 
