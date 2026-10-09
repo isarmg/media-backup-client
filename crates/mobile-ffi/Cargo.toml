@@ -1,0 +1,32 @@
+[package]
+name = "xszc-mobile"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["staticlib", "cdylib"]
+
+[dependencies]
+xszc-core = { path = "../client-core" }
+xszc-crypto = { path = "../crypto" }
+serde_json.workspace = true
+xcsc-mobile-ffi = { git = "https://github.com/isarmg/xcsc.git", rev = "a3c827b7f0f69d84ff69f72be1533a7171ab63d6", version = "=1.0.0" }
+jni = { workspace = true, optional = true }
+
+[features]
+jni-host-tests = ["dep:jni", "xcsc-mobile-ffi/jni"]
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni.workspace = true
+xcsc-mobile-ffi = { git = "https://github.com/isarmg/xcsc.git", rev = "a3c827b7f0f69d84ff69f72be1533a7171ab63d6", features = ["jni"], version = "=1.0.0" }
+
+[dev-dependencies]
+jni.workspace = true
+xcsc-mobile-ffi = { git = "https://github.com/isarmg/xcsc.git", rev = "a3c827b7f0f69d84ff69f72be1533a7171ab63d6", features = ["jni"], version = "=1.0.0" }
+tempfile.workspace = true
+
+[lints]
+workspace = true

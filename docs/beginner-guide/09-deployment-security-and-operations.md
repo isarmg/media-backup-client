@@ -1,0 +1,57 @@
+# 第 9 章：部署、安全与生产运维
+
+本章的 Server 主机内容用于说明 Client 所连接系统的信任边界；具体版本、发行目录和命令以独立
+[xszs](https://github.com/isarmg/xszs) 文档为准。本仓库只发布 Android APK
+与未签名 iOS IPA，不包含 Linux Server 发行树。
+
+## 生产信任边界
+
+Internet 只到 TLS reverse proxy；Axum 回环监听。Proxy、应用、SQLite、DATA_DIR 和移动 Secret 各自是
+独立边界。`TRUSTED_PROXY_CIDRS` 只列直接 peer，不列所有互联网客户端。
+
+## 不可变发行
+
+Client 正式归档由干净精确 `v1.0.0` tag 构建。工作流先核对 tag、根 `VERSION`、Android versionName、
+iOS MARKETING_VERSION 与固定的 Rust 合同版本，再生成签名 APK、未签名 IPA 和 SHA256SUMS；已有
+GitHub Release 不会被覆盖。
+
+Android 正式 APK 只包含 `arm64-v8a`；CI 模拟器构建可使用 `x86_64`，但不能进入正式 APK。iOS app 与
+Rust XCFramework 的最低部署目标均为 iOS 26。Server 的 Linux 目标限制不等于移动 ABI 限制。
+
+## 权限
+
+release root-owned read-only；服务账户 `ixcss-media` 不可登录，仅写状态和 runtime。环境文件 0600；
+数据库和媒体目录 0700/最小 umask。TLS 私钥由 proxy 账户保护，不授予应用读取。
+
+## 上线检查
+
+1. 校验外层 SHA256SUMS、binary identity 和 release verify。
+2. 审核环境，无初始化 Secret 标记。
+3. 检查 proxy/防火墙，后端不可被公网直连。
+4. 启动后检查 liveness/readiness 和 Journal。
+5. 管理员登录、创建测试用户、上传小媒体、下载和恢复。
+6. 检查 metrics、磁盘/inode、SQLite WAL 和审计。
+
+## 日常容量
+
+媒体增长、缩略图、staging 与数据库分别预测。告警阈值要给最大并发 upload 留余量。磁盘不足时先停止
+新上传，不直接删除 staging；根据 durable 状态执行受控清理。
+
+## 备份恢复
+
+原始媒体、缩略图和本地数据库均可能包含敏感内容，应保护持久目录权限并控制访问。
+
+## Secret 轮换
+
+管理员密码、设备 Token、API Key、metrics Token、TLS key 分别轮换。认证器只接受当前有效摘要，不保留
+双密钥 fallback。轮换后验证被替换的凭据确实失败。
+
+## 事件响应
+
+先限制入口和写入，保全 release SHA、Journal、审计、数据库/data snapshot 与 proxy 日志，再轮换可能泄露
+的凭据。公开 issue 不包含媒体、账号、Token、内部路径或数据库。安全修复只面向当前版本。
+
+## 退役
+
+停止并禁用服务，验证保留/销毁策略，保全所需的当前配置和数据副本，撤销所有设备/API Key，删除 DNS/
+证书/代理入口，最后按审批销毁数据和 Secret。不能把卸载二进制等同于销毁用户媒体。

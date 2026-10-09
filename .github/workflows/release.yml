@@ -1,0 +1,213 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+env:
+  RELEASE_TAG: ${{ github.ref_name }}
+  XSZC_ANDROID_APPLICATION_ID: org.sarmg.xszc
+  XSZC_ANDROID_SIGNING_KEY_ALIAS: media-backup-android-release
+  XSZC_ANDROID_SIGNING_CERT_SHA256: 0cfc2811d48cdeab3e6d857029d879e001ab9531c06784b4d48d15a847771421
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          toolchain: 1.99.0
+          components: rustfmt,clippy
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - run: ./scripts/verify-release-version.sh "$RELEASE_TAG"
+      - run: ./scripts/check-mobile-contract.sh
+      - run: ./scripts/check-workflow-supply-chain.sh
+      - run: python3 scripts/test-package-ios-ipa.py
+      - run: cargo fmt --all -- --check
+      - run: cargo check --workspace --locked
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo test --workspace --locked
+
+  android:
+    name: Android APK
+    needs: validate
+    environment: android-signing
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          toolchain: 1.99.0
+          targets: aarch64-linux-android
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: release-android
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: "17.0.20+101"
+          check-latest: false
+      - name: Verify the reviewed Java runtime build
+        run: |
+          java_runtime_version="$(java -XshowSettings:properties -version 2>&1 | sed -n 's/^[[:space:]]*java.runtime.version = //p')"
+          printf 'Java runtime: %s\n' "$java_runtime_version"
+          test "$java_runtime_version" = "17.0.20.1+1"
+      - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
+        with:
+          packages: platform-tools
+      - run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358"
+      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6
+        with:
+          gradle-version: "9.5.0"
+          cache-provider: basic
+      - run: cargo install cargo-ndk --version 4.1.2 --locked
+      - name: Build Rust Android library
+        run: |
+          export ANDROID_NDK_ROOT="$ANDROID_HOME/ndk/28.2.13676358"
+          export ANDROID_NDK_HOME="$ANDROID_NDK_ROOT"
+          cargo ndk -t arm64-v8a -o clients/android/app/src/main/jniLibs build -p xszc-mobile --release --locked
+      - name: Test Android HTTP and state contracts before signing
+        run: gradle -p clients/android testDebugUnitTest
+      - name: Materialize and validate the current signing identity
+        env:
+          XSZC_ANDROID_SIGNING_PKCS12_BASE64: ${{ secrets.MEDIA_BACKUP_ANDROID_SIGNING_PKCS12_BASE64 }}
+          XSZC_ANDROID_SIGNING_PKCS12_PASSWORD: ${{ secrets.MEDIA_BACKUP_ANDROID_SIGNING_PKCS12_PASSWORD }}
+        run: |
+          test -n "$XSZC_ANDROID_SIGNING_PKCS12_BASE64"
+          test -n "$XSZC_ANDROID_SIGNING_PKCS12_PASSWORD"
+          umask 077
+          printf '%s' "$XSZC_ANDROID_SIGNING_PKCS12_BASE64" \
+            | base64 --decode >"$RUNNER_TEMP/xszc-android-release.p12"
+          test -s "$RUNNER_TEMP/xszc-android-release.p12"
+          alias_line="$(
+            openssl pkcs12 \
+              -in "$RUNNER_TEMP/xszc-android-release.p12" \
+              -passin env:XSZC_ANDROID_SIGNING_PKCS12_PASSWORD \
+              -clcerts -nokeys \
+              | sed -n 's/^    friendlyName: //p'
+          )"
+          test "$alias_line" = "$XSZC_ANDROID_SIGNING_KEY_ALIAS"
+      - name: Build the signed release APK
+        env:
+          XSZC_ANDROID_SIGNING_PKCS12_PATH: ${{ runner.temp }}/xszc-android-release.p12
+          XSZC_ANDROID_SIGNING_PKCS12_PASSWORD: ${{ secrets.MEDIA_BACKUP_ANDROID_SIGNING_PKCS12_PASSWORD }}
+        run: gradle -p clients/android assembleRelease
+      - name: Verify and package the signed APK
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          apk="clients/android/app/build/outputs/apk/release/app-release.apk"
+          test -s "$apk"
+          signer_output="$("$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$apk")"
+          printf '%s\n' "$signer_output"
+          test "$(printf '%s\n' "$signer_output" | grep -c '^Signer #[0-9].*certificate SHA-256 digest:')" -eq 1
+          actual_fingerprint="$(
+            printf '%s\n' "$signer_output" \
+              | sed -n 's/^Signer #1 certificate SHA-256 digest: //p'
+          )"
+          test "${actual_fingerprint,,}" = "$XSZC_ANDROID_SIGNING_CERT_SHA256"
+          badging="$("$ANDROID_HOME/build-tools/36.0.0/aapt2" dump badging "$apk")"
+          printf '%s\n' "$badging" | grep -F "package: name='$XSZC_ANDROID_APPLICATION_ID'"
+          test "$(zipinfo -1 "$apk" | awk -F/ '$1 == "lib" { print $2 }' | sort -u)" = "arm64-v8a"
+          zipinfo -1 "$apk" | grep -Fx 'lib/arm64-v8a/libxszc_mobile.so'
+          mkdir -p dist
+          install -m 0444 "$apk" "dist/xszc-android-${version}-arm64.apk"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-android
+          path: dist/*.apk
+          if-no-files-found: error
+
+  ios:
+    name: iOS unsigned IPA
+    needs: validate
+    runs-on: macos-26
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          toolchain: 1.99.0
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: release-ios26
+      - name: Verify Xcode 26 and iOS 26 SDKs
+        run: bash scripts/verify-ios-toolchain.sh
+      - name: Install and verify the reviewed XcodeGen version
+        run: |
+          brew install xcodegen
+          test "$(xcodegen --version)" = "Version: 2.46.0"
+      - run: ./scripts/build-ios-rust.sh
+      - run: cd clients/ios && xcodegen generate
+      - name: Build without signing
+        run: xcodebuild -project clients/ios/Xszc.xcodeproj -scheme Xszc -sdk iphoneos -configuration Release CODE_SIGNING_ALLOWED=NO -derivedDataPath clients/ios/DerivedData build
+      - name: Package unsigned IPA
+        run: |
+          version="${RELEASE_TAG#v}"
+          python3 scripts/package-ios-ipa.py \
+            --app clients/ios/DerivedData/Build/Products/Release-iphoneos/Xszc.app \
+            --version "$version" \
+            --output "dist/xszc-ios-${version}-unsigned.ipa"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-ios
+          path: dist/*.ipa
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    needs: [android, ios]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+      - name: Create checksums
+        working-directory: dist
+        run: sha256sum -- * > SHA256SUMS
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${RELEASE_TAG#v}"
+          notes="docs/releases/${version}.md"
+          test -f "$notes"
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Refusing to reuse or overwrite existing release $RELEASE_TAG" >&2
+            exit 1
+          fi
+          gh release create "$RELEASE_TAG" dist/* --verify-tag --notes-file "$notes" --title "$RELEASE_TAG"

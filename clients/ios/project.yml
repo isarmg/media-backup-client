@@ -1,0 +1,77 @@
+name: Xszc
+options:
+  bundleIdPrefix: org.sarmg
+  deploymentTarget:
+    iOS: "26.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.10"
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1000000"
+    "CODE_SIGN_IDENTITY[sdk=iphonesimulator*]": "-"
+targets:
+  Xszc:
+    type: application
+    platform: iOS
+    sources:
+      - Xszc
+    info:
+      path: Xszc/Info.plist
+      properties:
+        CFBundleDisplayName: 媒体备份
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        NSPhotoLibraryUsageDescription: 用于读取您选择的照片和视频，并通过 HTTPS 备份到自己的服务器。
+        NSPhotoLibraryAddUsageDescription: 用于将您从服务器恢复的原始照片和视频写回系统照片库。
+        UIBackgroundModes:
+          - fetch
+          - processing
+        BGTaskSchedulerPermittedIdentifiers:
+          - org.sarmg.xszc.processing.v1
+    entitlements:
+      path: Xszc/Xszc.entitlements
+    dependencies:
+      - framework: Vendor/XszcRust.xcframework
+        embed: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.sarmg.xszc
+        PRODUCT_NAME: Xszc
+        CODE_SIGN_STYLE: Automatic
+  XszcTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - XszcTests
+    dependencies:
+      - target: Xszc
+      - framework: Vendor/XszcRust.xcframework
+        embed: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.sarmg.xszc.tests
+        CODE_SIGN_STYLE: Automatic
+        GENERATE_INFOPLIST_FILE: YES
+  XszcUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - XszcUITests
+    dependencies:
+      - target: Xszc
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.sarmg.xszc.uitests
+        CODE_SIGN_STYLE: Automatic
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  Xszc:
+    build:
+      targets:
+        Xszc: all
+    test:
+      config: Debug
+      targets:
+        - XszcTests
+        - XszcUITests

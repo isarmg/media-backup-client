@@ -1,0 +1,75 @@
+# 第 6 章：Android 与 iOS 客户端
+
+## 共同状态机
+
+```text
+未配置 -> 保存当前 HTTPS/实例授权码 -> 配对取得设备 Token
+ -> 请求照片权限 -> 选择/排除相册 -> 扫描
+ -> durable enqueue -> background upload -> sync cursor
+ -> timeline browse -> authenticated download -> system restore
+```
+
+两端必须表达相同产品/version/revision/epoch 和 `plain-v1`，但不要求 UI 代码共用。
+
+## Android 扫描
+
+`MediaScanner` 通过 ContentResolver/MediaStore 分页读取媒体，使用稳定系统 ID、修改时间、MIME、大小和
+相册关系构造候选。`DeviceAlbums` 管理选择/排除。不要在主线程读取大文件，也不要假设 content URI 是
+普通文件路径。
+
+`BackupScheduler` 配置 WorkManager 网络/电量策略，`BackupWorker` 驱动 Rust queue 与 `BackupApi`。
+Worker 重启时从 durable state 继续，不能仅依赖 Compose 内存状态。自动扫描一律使用
+`replace_members=false` 增量同步相册，部分授权或分批扫描不会移除本次未看到的远端成员。
+
+“从 durable state 继续”必须按状态理解：`ready` job 和带 `prepared_json` 的到期 `retry_wait` job 都会
+复用已经持久化的 part，无需读取导出临时源；进程重启还会把带准备结果的 `preparing` 或
+`uploading` 恢复成 `ready`。没有准备结果的任务才回到 `discovered` 并重新读取源文件。每次准备写入新的
+generation，成功持久化后回收同一 job 的旧 generation；准备中途失败的未引用 generation 要等后续成功
+准备才能被回收。不能用清空整个 staging 的方式排障。
+
+## Android Secret 与权限
+
+服务地址、实例授权码、用户可见设置与 Token 分级保存；授权码和 Token 由 Keystore 支持的加密存储保护。日志、Intent、
+SavedState 和 crash report 不包含凭据。Android 正式 package/app ID 只使用当前命名空间，不查找旧
+preference、database 或 staging。
+
+正式 application ID 是 `org.sarmg.xszc`，Kotlin 路径、namespace、JNI 导出名和 APK badging 必须
+同时一致。Debug APK 只用于 CI/开发，永远不取得正式 Secret；Release 使用受保护 Environment 中两个
+PKCS#12 Secret，并在发布前核对唯一 signer、固定证书指纹和唯一 `arm64-v8a` JNI。安装包仅支持当前
+package/证书身份，JNI 仅导出当前 ABI 符号。
+
+## iOS 扫描
+
+`PhotoScanner` 通过 PhotoKit fetch result 和授权范围读取 asset/album，必要时请求 resource stream。
+limited library 权限下扫描只覆盖当前授权集合。相册同步固定为 `replace_members=false`，仅追加已备份
+成员；权限收缩或扫描批次边界不会触发远端成员删除。
+
+`BackupCoordinator` 管理扫描/队列/后台任务，`BackgroundUploader` 用 `taskDescription` 关联 URLSession
+task 与 durable job。当前 `AppDelegate` 只注册 BGProcessingTask，没有实现 background URLSession 的
+relaunch completion handoff；因此只能保证现有 delegate 生命周期内的回调，不能宣称杀进程后已闭环。
+`BackgroundUploader.submit` 逐块等待上传回调并提交完成回执；自动扫描中的队列处理完成后同步相册。
+本轮尚未备份的资产成员可在后续运行中补齐。
+
+## iOS Secret 与恢复
+
+Token 存 Keychain。恢复路径先取得 manifest，再将下载文件写入私有暂存目录并调用 Rust 校验
+size/BLAKE3；校验通过后才交给 PhotoKit `performChanges`。Android 在发布到 MediaStore 前采用相同
+校验。权限拒绝、空间不足和照片库写入失败仍会中止恢复。
+
+## FFI 规则
+
+当前 C ABI 为 Foundation revision 1：`xszc_*_v1` 接收显式指针/长度和 `XcscFfiResultV1` 输出，返回状态码。
+生成 Header 只有 `xszc_ffi_v1.h`；结果中的字节和错误消息均有明确长度，必须通过
+`xcsc_ffi_result_free_v1` 释放整个结果，不能复制后重复释放。
+Swift 通过 XCFramework 的 `XszcRust` C module 导入 Header；
+Kotlin 使用 `NativeBridgeV1`，JNI 失败抛出 Foundation 映射的异常，不把默认值当成功。两个宿主都先验证
+ABI revision；业务配置仍严格验证当前 product/version/revision/state_epoch，ABI revision 不等于状态 epoch。
+Rust panic 经共享边界转成 255，panic 内容不写入宿主日志；`panic=abort` 构建会被拒绝。
+移动 `part_size` 限制为 1 字节至 64 MiB，单文件最多 4096 个分块；超限配置在创建数据库前拒绝，
+已知超限文件在创建分块目录前拒绝。分块缓冲区使用可失败的分配，避免配置触发无界分配。
+本机 C 动态库验收和 Rust 测试已通过，Android/iOS 原生运行验收必须另行执行，不能用静态门禁代替。
+
+## UI 可观察状态
+
+至少区分扫描中、待上传、正在上传、可重试失败、永久拒绝、同步中和恢复结果。显示统计不能成为状态
+事实源；重启后从 SQLite/API 重建。取消只是停止本轮工作，是否删除 durable job 必须由明确用户动作决定。
