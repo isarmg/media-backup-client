@@ -148,7 +148,7 @@ jobs:
       # Keep our explicit screenshots/log export; avoid Xcode simulator sysdiagnose
       # collection hanging after a finished suite on hosted Apple runners.
       - name: Run iOS login and gallery UI tests
-        timeout-minutes: 12
+        timeout-minutes: 18
         run: |
           bash scripts/seed-ios-ui.sh "$XSZC_TEST_SIMULATOR"
           python3 scripts/test-ios-ui.py "$XSZC_TEST_SIMULATOR" clients/ios/TestResults.xcresult

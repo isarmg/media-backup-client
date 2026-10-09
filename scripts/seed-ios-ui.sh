@@ -27,7 +27,7 @@ xcrun simctl addmedia "$simulator_udid" "$fixture_dir"/gallery-page-*.png
 # The same synthetic H.264 clip exercises local playback on both platforms.
 cp clients/android/app/src/androidTest/assets/video-preview.mp4 "$fixture_dir/layout-video.mp4"
 xcrun simctl addmedia "$simulator_udid" "$fixture_dir/layout-video.mp4"
-# Insert photo 1 last so the named selection fixture remains in the first visible rows.
+# Import the remaining fixtures; PhotoKit sorts by asset date, not import order.
 for ((index=8; index>=1; index--)); do
   xcrun simctl addmedia "$simulator_udid" "$fixture_dir/layout-photo-$index.png"
 done

@@ -37,12 +37,23 @@ final class NavigationTests: XCTestCase {
         let seeked = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value BEGINSWITH %@", "00:06"), object: progress)
         XCTAssertEqual(XCTWaiter.wait(for: [seeked], timeout: 5), .completed)
         screenshot("video-fullscreen-paused")
+        // Leave enough playback time to exercise automatic control hiding.
+        progress.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5)).tap()
+        let rewound = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value BEGINSWITH %@", "00:00"), object: progress)
+        XCTAssertEqual(XCTWaiter.wait(for: [rewound], timeout: 5), .completed)
         play.tap()
         let playing = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "暂停"), object: play)
         XCTAssertEqual(XCTWaiter.wait(for: [playing], timeout: 5), .completed)
-        let advanced = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value BEGINSWITH %@", "00:07"), object: progress)
+        // At 1.5x, XCTest's polling can skip a particular second. Require
+        // actual advancement instead of catching one transient timestamp.
+        let advanced = XCTNSPredicateExpectation(predicate: NSPredicate(
+            format: "exists == true AND NOT (value BEGINSWITH %@)", "00:00"), object: progress)
         XCTAssertEqual(XCTWaiter.wait(for: [advanced], timeout: 5), .completed)
+        let hidden = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: play)
+        XCTAssertEqual(XCTWaiter.wait(for: [hidden], timeout: 8), .completed)
+        preview.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5)).tap()
         play.tap()
+        XCTAssertEqual(play.label, "播放")
         app.buttons["video.backup"].tap()
         XCTAssertEqual(app.buttons["video.backup"].label, "取消选择备份")
         play.tap()
@@ -370,7 +381,9 @@ final class NavigationTests: XCTestCase {
     @MainActor private func requestPhotoAccess(_ app: XCUIApplication) {
         let tile = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "media.tile.")).firstMatch
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
-        let deadline = ProcessInfo.processInfo.systemUptime + 120
+        // Fresh hosted simulators may still be indexing the large imported
+        // library after addmedia returns and permission is first granted.
+        let deadline = ProcessInfo.processInfo.systemUptime + 240
         while ProcessInfo.processInfo.systemUptime < deadline {
             _ = allowFullPhotoAccess(springboard.alerts.firstMatch)
             if tile.exists { return }
@@ -380,7 +393,7 @@ final class NavigationTests: XCTestCase {
     }
 
     @MainActor private func monitorFullPhotoAccess() -> NSObjectProtocol {
-        addUIInterruptionMonitor(withDescription: "Media Backup Full Photo Library access") { alert in
+        addUIInterruptionMonitor(withDescription: "xszc Full Photo Library access") { alert in
             self.allowFullPhotoAccess(alert)
         }
     }
