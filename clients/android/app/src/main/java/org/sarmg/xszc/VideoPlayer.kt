@@ -171,7 +171,9 @@ private fun VideoPlayback(
                             }
                         }
                     }
-                    if (ready && !failed) VideoIconButton(
+                    // Seeking temporarily returns ExoPlayer to BUFFERING. Keep
+                    // transport controls available once the duration is known.
+                    if ((ready || duration > 0) && !failed) VideoIconButton(
                         if (playing) R.drawable.ic_video_pause else R.drawable.ic_video_play,
                         if (playing) "暂停" else "播放", ::togglePlayback,
                         Modifier.align(Alignment.Center).size(76.dp).testTag("video.play"),
@@ -233,9 +235,10 @@ private fun VideoPlayback(
 
 @Composable
 private fun VideoIconButton(icon: Int, label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Surface(onClick = onClick, modifier = modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp), shape = CircleShape, color = videoPanel) {
+    Surface(onClick = onClick, modifier = modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+        .semantics { contentDescription = label }, shape = CircleShape, color = videoPanel) {
         Box(Modifier.padding(12.dp), contentAlignment = Alignment.Center) {
-            Icon(painterResource(icon), label, Modifier.size(if (label == "关闭视频") 22.dp else 30.dp), tint = Color.White)
+            Icon(painterResource(icon), null, Modifier.size(if (label == "关闭视频") 22.dp else 30.dp), tint = Color.White)
         }
     }
 }
