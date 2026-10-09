@@ -8,6 +8,7 @@ struct LocalMedia: Identifiable {
     let name: String
     let kind: String
     let created: Int64
+    let modified: Int64
     let descriptor: String
     let state: String
     let excluded: Bool
@@ -15,6 +16,7 @@ struct LocalMedia: Identifiable {
         guard let id = raw["source_id"] as? String, let descriptor = raw["descriptor"] as? String else { return nil }
         self.id = id; self.descriptor = descriptor
         name = raw["name"] as? String ?? "媒体"; kind = raw["media_kind"] as? String ?? "photo"
+        modified = (raw["modified_ms"] as? Int64) ?? 0
         created = (raw["created_ms"] as? Int64) ?? 0; state = (raw["backup_state"] as? String) ?? "unknown"
         excluded = (raw["excluded"] as? Bool) ?? false
     }
@@ -94,6 +96,42 @@ enum LocalCatalog {
         log.info("catalog finished with \(albums.count) albums")
         return albums
     }
+    static func index(store: TransferStore, album: String?, kind: String?, unbacked: Bool) throws -> LocalGalleryDirectory {
+        guard let rows = try store.gallery(["op": "local_index", "album": album as Any? ?? NSNull(),
+            "media_kind": kind as Any? ?? NSNull(), "unbacked": unbacked]) as? [[String: Any]] else {
+            throw CoordinatorFailure.message("本地图库目录无效，请重试")
+        }
+        return LocalGalleryDirectory(rows)
+    }
+    static func items(store: TransferStore, ids: [String]) throws -> [LocalMedia] {
+        guard !ids.isEmpty else { return [] }
+        guard ids.count <= 1000, let rows = try store.gallery(["op": "local_items", "source_ids": ids]) as? [[String: Any]] else {
+            throw CoordinatorFailure.message("本地图库详情无效，请重试")
+        }
+        return rows.compactMap(LocalMedia.init)
+    }
+    static func patch(store: TransferStore, change: LocalPhotoChanges, album: String?) throws {
+        var members = Set<String>()
+        if let album, let collection = PHAssetCollection.fetchAssetCollections(withLocalIdentifiers: [album], options: nil).firstObject {
+            PHAsset.fetchAssets(in: collection, options: nil).enumerateObjects { asset, _, _ in members.insert(asset.localIdentifier) }
+        }
+        for offset in stride(from: 0, to: change.removed.count, by: 200) {
+            try store.gallery(["op": "patch_catalog", "items": [], "removed_source_ids": Array(change.removed[offset..<min(offset + 200, change.removed.count)])])
+        }
+        var items: [[String: Any]] = []
+        for asset in change.updated {
+            guard asset.mediaType == .image || asset.mediaType == .video else { continue }
+            let name = PHAssetResource.assetResources(for: asset).first?.originalFilename ?? "媒体"
+            let descriptor = try JSONSerialization.data(withJSONObject: ["kind": "photokit", "id": asset.localIdentifier, "name": name])
+            items.append(["source_id": asset.localIdentifier, "name": name, "media_kind": asset.mediaType == .video ? "video" : "photo",
+                "album_id": members.contains(asset.localIdentifier) ? (album ?? "") : "",
+                "created_ms": Int64((asset.creationDate ?? .distantPast).timeIntervalSince1970 * 1000),
+                "modified_ms": Int64((asset.modificationDate ?? asset.creationDate ?? .distantPast).timeIntervalSince1970 * 1000),
+                "size": 0, "descriptor": String(decoding: descriptor, as: UTF8.self)])
+            if items.count == 200 { try store.gallery(["op": "patch_catalog", "items": items, "removed_source_ids": []]); items.removeAll(keepingCapacity: true) }
+        }
+        if !items.isEmpty { try store.gallery(["op": "patch_catalog", "items": items, "removed_source_ids": []]) }
+    }
     static func page(store: TransferStore, album: String?, kind: String?, unbacked: Bool, offset: Int,
         limit: Int = pageSize) throws -> [LocalMedia] {
         guard let raw = try store.gallery(["op": "local_page", "album": album as Any? ?? NSNull(),
@@ -120,38 +158,53 @@ enum LocalCatalog {
     }
 }
 
+struct LocalPhotoChanges: @unchecked Sendable {
+    let updated: [PHAsset]
+    let removed: [String]
+    let fullScan: Bool
+    let albumsChanged: Bool
+}
 private final class LocalPhotoLibraryChanges: NSObject, ObservableObject, PHPhotoLibraryChangeObserver {
     @Published var revision = 0
     @MainActor private var assets: PHFetchResult<PHAsset>?
     @MainActor private var collections: PHFetchResult<PHAssetCollection>?
     @MainActor private var libraryAlbums: PHFetchResult<PHAssetCollection>?
-    override init() {
-        super.init()
-        PHPhotoLibrary.shared().register(self)
-    }
+    @MainActor private var updated: [String: PHAsset] = [:]
+    @MainActor private var removed: Set<String> = []
+    @MainActor private var fullScan = false
+    @MainActor private var albumsChanged = false
+    override init() { super.init(); PHPhotoLibrary.shared().register(self) }
     deinit { PHPhotoLibrary.shared().unregisterChangeObserver(self) }
     @MainActor func trackLibrary() {
         assets = PHAsset.fetchAssets(with: nil)
         collections = PHAssetCollection.fetchAssetCollections(with: .album, subtype: .any, options: nil)
         libraryAlbums = PHAssetCollection.fetchAssetCollections(with: .smartAlbum, subtype: .smartAlbumUserLibrary, options: nil)
+        updated = [:]; removed = []; fullScan = false; albumsChanged = false
     }
+    @MainActor func takeChanges() -> LocalPhotoChanges {
+        let result = LocalPhotoChanges(updated: Array(updated.values), removed: Array(removed), fullScan: fullScan, albumsChanged: albumsChanged)
+        updated = [:]; removed = []; fullScan = false; albumsChanged = false
+        return result
+    }
+    @MainActor func requireFullScan() { fullScan = true }
     func photoLibraryDidChange(_ changeInstance: PHChange) {
         Task { @MainActor [weak self] in
             guard let self else { return }
             var changed = false
             if let assets, let details = changeInstance.changeDetails(for: assets) {
                 self.assets = details.fetchResultAfterChanges
+                if details.hasIncrementalChanges {
+                    for asset in details.removedObjects { removed.insert(asset.localIdentifier); updated.removeValue(forKey: asset.localIdentifier) }
+                    for asset in details.insertedObjects + details.changedObjects { updated[asset.localIdentifier] = asset; removed.remove(asset.localIdentifier) }
+                } else { fullScan = true }
                 changed = true
             }
             if let collections, let details = changeInstance.changeDetails(for: collections) {
-                self.collections = details.fetchResultAfterChanges
-                changed = true
+                self.collections = details.fetchResultAfterChanges; albumsChanged = true; changed = true
             }
             if let libraryAlbums, let details = changeInstance.changeDetails(for: libraryAlbums) {
-                self.libraryAlbums = details.fetchResultAfterChanges
-                changed = true
+                self.libraryAlbums = details.fetchResultAfterChanges; albumsChanged = true; changed = true
             }
-            // Thumbnail/cache notifications unrelated to our fetches must not restart a scan.
             if changed { revision += 1 }
         }
     }
@@ -162,13 +215,16 @@ struct LocalGalleryScreen: View {
     let onLogin: () -> Void
     @EnvironmentObject private var coordinator: BackupCoordinator
     @Environment(\.scenePhase) private var scenePhase
-    @State private var rows: [LocalMedia] = []
+    @State private var directory = LocalGalleryDirectory()
+    @StateObject private var details = LocalGalleryDetails()
+    @Environment(\.displayScale) private var displayScale
+    @State private var scrollAnchor: String?
+    @State private var authorization: PHAuthorizationStatus?
     @State private var albums: [PhotoAlbum] = []
     @State private var album: String?
     @State private var kind: String?
     @State private var unbacked = false
     @State private var selected: [String: LocalMedia] = [:]
-    @State private var selectionScopes: [Date: Set<String>] = [:]
     @State private var selectionGeneration = 0
     @State private var preview: LocalMedia?
     @State private var videoPreview: LocalMedia?
@@ -178,10 +234,7 @@ struct LocalGalleryScreen: View {
     @GestureState private var isPinching = false
     private var displayedColumns: Int { min(8, max(1, gridColumns)) }
     @State private var busy = false
-    @State private var loadingMore = false
-    @State private var more = false
     @State private var loadedQuery: LocalGalleryQuery?
-    @State private var loadedCapacity = LocalCatalog.pageSize
     @State private var message = ""
     @StateObject private var photoChanges = LocalPhotoLibraryChanges()
     @State private var queuedRefresh = false
@@ -192,7 +245,7 @@ struct LocalGalleryScreen: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text("已载入 \(rows.count) 项")
+                    Text("共 \(directory.entries.count) 项")
                         .font(.subheadline.weight(.medium))
                         .accessibilityIdentifier("gallery.loaded-count")
                     if isSelecting {
@@ -203,10 +256,10 @@ struct LocalGalleryScreen: View {
                     if hasFilters { Button("清除筛选") { clearFilters() }.font(.subheadline) }
                 }
                 if !message.isEmpty { Text(message).font(.footnote).foregroundStyle(.red) }
-                if busy && !loadingMore {
+                if busy && directory.entries.isEmpty {
                     ProgressView().frame(maxWidth: .infinity).accessibilityIdentifier("gallery.loading")
                 }
-                if rows.isEmpty && !busy {
+                if directory.entries.isEmpty && !busy {
                     GalleryEmptyState(title: hasFilters ? "没有符合条件的照片" : "这里还没有照片",
                         message: hasFilters ? "清除筛选后查看全部可访问的媒体。" : "允许访问选定照片或全部照片后，在这里浏览和备份。",
                         icon: "photo.on.rectangle")
@@ -219,16 +272,17 @@ struct LocalGalleryScreen: View {
                 }
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 3), count: displayedColumns),
                     alignment: .leading, spacing: 3) {
-                    ForEach(Array(Set(rows.map(\.day))).sorted(by: >), id: \.self) { day in
+                    ForEach(directory.sections) { section in
+                        let day = section.id
                         Section {
-                            ForEach(rows.filter { $0.day == day }) { row in localTile(row) }
+                            ForEach(section.entries) { entry in localTile(entry).id(entry.id) }
                         } header: {
                             HStack {
                                 Text(day, style: .date).font(.subheadline.bold())
                                     .accessibilityIdentifier("gallery.date.\(Int(day.timeIntervalSince1970))")
                                 Spacer()
                                 if isSelecting {
-                                    let allSelected = isDaySelected(day)
+                                    let allSelected = section.entries.allSatisfy { selected[$0.id] != nil }
                                     Button(allSelected ? "取消全选" : "全选") {
                                         Task { await selectScope(day: day, deselect: allSelected) }
                                     }.disabled(busy)
@@ -239,17 +293,11 @@ struct LocalGalleryScreen: View {
                         }
                     }
                 }
+                .scrollTargetLayout()
                 .accessibilityIdentifier("gallery.grid")
-                if more {
-                    if loadingMore {
-                        ProgressView().frame(maxWidth: .infinity).accessibilityIdentifier("gallery.loading-more")
-                    } else {
-                        Button("加载更多") { Task { await load(append: true) } }
-                            .disabled(busy).frame(maxWidth: .infinity).accessibilityIdentifier("gallery.load-more")
-                    }
-                }
             }.padding(.horizontal, 16).padding(.top, 64).padding(.bottom, 12)
         }
+        .scrollPosition(id: $scrollAnchor, anchor: .top)
         .accessibilityIdentifier("gallery.scroll")
         .simultaneousGesture(MagnifyGesture(minimumScaleDelta: 0.02)
             .updating($isPinching) { _, active, _ in active = true }
@@ -263,15 +311,25 @@ struct LocalGalleryScreen: View {
         }
         .scrollEdgeEffectHidden(true, for: .all)
         .task(id: coordinator.profile) {
-            resetSelection()
+            let firstLoad = loadedQuery?.profile != coordinator.profile
+            if firstLoad { resetSelection() }
             if PHPhotoLibrary.authorizationStatus(for: .readWrite) == .notDetermined {
                 _ = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
             }
-            photoChanges.trackLibrary()
-            await load(scan: true)
+            authorization = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+            if firstLoad { photoChanges.trackLibrary() }
+            await load(scan: firstLoad)
         }
-        .onChange(of: photoChanges.revision) { _, _ in Task { await load(scan: true) } }
-        .onChange(of: scenePhase) { _, phase in if phase == .active { Task { await load(scan: true) } } }
+        .onChange(of: photoChanges.revision) { _, _ in Task { await load() } }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+                let changed = status != authorization || status == .limited
+                authorization = status
+                Task { await load(scan: changed) }
+            }
+        }
+        .onDisappear { details.stop() }
         .onChange(of: album) { _, _ in filtersChanged(scan: true) }
         .onChange(of: kind) { _, _ in filtersChanged() }
         .onChange(of: unbacked) { _, _ in filtersChanged() }
@@ -294,17 +352,11 @@ struct LocalGalleryScreen: View {
             .statusBarHidden()
             .persistentSystemOverlays(.hidden)
         }
-        .sheet(item: $videoPreview) { row in
-            VStack {
-                Text(row.name)
-                PhotoKitVideo(id: row.id)
-                Text(row.status)
-                Button(selected[row.id] == nil ? "选择备份" : "取消选择") { isSelecting = true; toggle(row); videoPreview = nil }
-                Button(row.excluded ? "恢复自动备份" : "不再自动备份此项目") {
-                    do { try coordinator.store().gallery(["op": "exclude", "source_id": row.id, "excluded": !row.excluded]); videoPreview = nil; Task { await load() } }
-                    catch { message = error.localizedDescription }
-                }
-            }.padding()
+        .fullScreenCover(item: $videoPreview) { row in
+            PhotoKitVideo(id: row.id, onClose: { videoPreview = nil },
+                backupSelected: selected[row.id] != nil, onBackup: { isSelecting = true; toggle(row) })
+                .statusBarHidden()
+                .persistentSystemOverlays(.hidden)
         }
     }
     private var galleryToolbar: some View {
@@ -355,65 +407,72 @@ struct LocalGalleryScreen: View {
             withAnimation(.easeOut(duration: 0.12)) { gridColumns = columns }
         }
     }
-    private func localTile(_ row: LocalMedia) -> some View {
-        Color.clear.aspectRatio(1, contentMode: .fit)
+    private func localTile(_ entry: LocalGalleryEntry) -> some View {
+        let row = details.rows[entry.id]
+        return Color.clear.aspectRatio(1, contentMode: .fit)
             .overlay {
                 GeometryReader { proxy in
-                    PhotoKitImage(id: row.id, preview: false)
+                    let pixels = PhotoKitThumbnails.size(proxy.size.width * displayScale)
+                    PhotoKitImage(id: entry.id, preview: false, thumbnailSize: pixels, modified: entry.modified)
                         .frame(width: proxy.size.width, height: proxy.size.height).clipped()
-                        .contentShape(Rectangle()).onTapGesture {
-                            if isSelecting { toggle(row) }
-                            else if row.kind == "video" { videoPreview = row }
-                            else { setPreview(row) }
-                        }
+                        .contentShape(Rectangle()).onTapGesture { openEntry(entry) }
                         .onLongPressGesture {
-                            isSelecting = true
-                            if selected[row.id] == nil { toggle(row) }
+                            if selected[entry.id] == nil { openEntry(entry, select: true) } else { isSelecting = true }
+                        }
+                        .onAppear { if let store = try? coordinator.store() { details.show(entry.id, directory: directory, store: store, pixels: pixels) } }
+                        .onDisappear { if let store = try? coordinator.store() { details.hide(entry.id, directory: directory, store: store) } }
+                        .onChange(of: pixels) { _, size in
+                            if let store = try? coordinator.store() { details.show(entry.id, directory: directory, store: store, pixels: size) }
                         }
                 }
             }
             .overlay(alignment: .bottomLeading) {
-                if row.kind == "video" {
+                if entry.kind == "video" {
                     Image(systemName: "video.fill").font(.caption).foregroundStyle(.white)
                         .padding(6).background(.black.opacity(0.55), in: Capsule()).padding(5)
                 }
             }
             .overlay(alignment: .bottomTrailing) {
-                if let symbol = row.statusSymbol {
+                if let row, let symbol = row.statusSymbol {
                     Image(systemName: symbol).font(.caption).foregroundStyle(.white)
-                        .padding(6).background(.black.opacity(0.55), in: Circle()).padding(5)
-                        .accessibilityLabel(row.status)
+                        .padding(6).background(.black.opacity(0.55), in: Circle()).padding(5).accessibilityLabel(row.status)
                 }
             }
             .overlay(alignment: .topLeading) {
-                if row.excluded {
+                if row?.excluded == true {
                     Image(systemName: "slash.circle.fill").font(.caption).foregroundStyle(.white)
-                        .padding(6).background(.black.opacity(0.55), in: Circle()).padding(5)
-                        .accessibilityLabel("自动备份已排除")
+                        .padding(6).background(.black.opacity(0.55), in: Circle()).padding(5).accessibilityLabel("自动备份已排除")
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .overlay(alignment: .topTrailing) {
                 if isSelecting {
                     GeometryReader { proxy in
-                        GallerySelectionButton(selected: selected[row.id] != nil, name: row.name,
-                            action: { toggle(row) }, size: min(44, max(24, proxy.size.width * 0.8)))
+                        GallerySelectionButton(selected: selected[entry.id] != nil, name: entry.name,
+                            action: { openEntry(entry, select: true) }, size: min(44, max(24, proxy.size.width * 0.8)))
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                     }
                 }
             }
             .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("media.tile.\(row.name)")
+            .accessibilityIdentifier("media.tile.\(entry.name)")
     }
-    private func isDaySelected(_ day: Date) -> Bool {
-        // The final loaded date may continue onto the next page.
-        guard selectionScopes[day] != nil || !more || rows.last?.day != day else { return false }
-        let ids = (selectionScopes[day] ?? []).union(rows.filter { $0.day == day }.map(\.id))
-        return !ids.isEmpty && ids.allSatisfy { selected[$0] != nil }
+    private func openEntry(_ entry: LocalGalleryEntry, select: Bool? = nil) {
+        let selecting = select ?? isSelecting
+        let identity = coordinator.profile
+        Task {
+            do {
+                let row = try await details.resolve(entry, store: coordinator.store())
+                guard identity == coordinator.profile else { return }
+                if selecting { isSelecting = true; toggle(row) }
+                else if row.kind == "video" { videoPreview = row }
+                else { setPreview(row) }
+            } catch { message = error.localizedDescription }
+        }
     }
     private func resetSelection() {
         selectionGeneration += 1
-        selected = [:]; selectionScopes = [:]
+        selected = [:]
         isSelecting = false
     }
     private func toggle(_ row: LocalMedia) {
@@ -424,52 +483,65 @@ struct LocalGalleryScreen: View {
         album = nil; kind = nil; unbacked = false
     }
     private func filtersChanged(scan: Bool = false) {
-        selectionGeneration += 1; selectionScopes = [:]
+        selectionGeneration += 1
         Task { await load(scan: scan) }
     }
-    @MainActor private func load(scan: Bool = false, append: Bool = false) async {
-        guard !busy else {
-            if !append { queuedRefresh = true; queuedScan = queuedScan || scan }
-            return
-        }
+    @MainActor private func load(scan: Bool = false) async {
+        guard !busy else { queuedRefresh = true; queuedScan = queuedScan || scan; return }
         let query = LocalGalleryQuery(profile: coordinator.profile, album: album, kind: kind, unbacked: unbacked)
-        let appending = append && loadedQuery == query
-        let offset = appending ? rows.count : 0
-        let count = appending || loadedQuery != query ? LocalCatalog.pageSize : loadedCapacity
+        let changingFilter = loadedQuery != query
         busy = true
-        loadingMore = appending
         defer {
             busy = false
-            loadingMore = false
             if queuedRefresh {
                 let scan = queuedScan
                 queuedRefresh = false; queuedScan = false
                 Task { await load(scan: scan) }
             }
         }
-        let identity = coordinator.profile
+        let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        guard status == .authorized || status == .limited else {
+            directory = LocalGalleryDirectory(); details.stop(); selected = [:]; albums = []; loadedQuery = nil
+            return
+        }
         do {
-            let store = try coordinator.store(); let filter = kind; let missing = unbacked; let chosenAlbum = album
-            if scan {
-                let fetched = try await Task.detached { try LocalCatalog.scan(store: store, album: chosenAlbum) }.value
-                guard identity == coordinator.profile, chosenAlbum == album, filter == kind, missing == unbacked else {
-                    queuedRefresh = true; queuedScan = true; return
-                }
-                albums = fetched
+            let store = try coordinator.store()
+            func current() -> Bool { query == LocalGalleryQuery(profile: coordinator.profile, album: album, kind: kind, unbacked: unbacked) }
+            func readDirectory() async throws {
+                let next = try await Task.detached { try LocalCatalog.index(store: store, album: query.album, kind: query.kind, unbacked: query.unbacked) }.value
+                try Task.checkCancellation()
+                guard current() else { queuedRefresh = true; return }
+                directory = next; loadedQuery = query; details.reset(directory: next, store: store); message = ""
             }
-            let page = try await Task.detached { try LocalCatalog.window(store: store, album: chosenAlbum,
-                kind: filter, unbacked: missing, offset: offset, count: count) }.value
-            guard identity == coordinator.profile, chosenAlbum == album, filter == kind, missing == unbacked else {
-                queuedRefresh = true; queuedScan = queuedScan || chosenAlbum != album; return
+            // Existing metadata is visible immediately, before any PhotoKit reconciliation.
+            if status == .authorized { try await readDirectory() }
+            else { directory = LocalGalleryDirectory(); details.stop() }
+            if changingFilter { scrollAnchor = directory.entries.first?.id }
+            guard current() else { queuedRefresh = true; queuedScan = queuedScan || scan; return }
+            let change = photoChanges.takeChanges()
+            let full = scan || status == .limited || change.fullScan || (query.album != nil && change.albumsChanged)
+            if full {
+                albums = try await Task.detached { try LocalCatalog.scan(store: store, album: query.album) }.value
+            } else if !change.updated.isEmpty || !change.removed.isEmpty {
+                try await Task.detached { try LocalCatalog.patch(store: store, change: change, album: query.album) }.value
             }
-            rows = appending ? rows + page.rows : page.rows
-            loadedCapacity = appending ? loadedCapacity + LocalCatalog.pageSize : count
-            loadedQuery = query; more = page.hasMore; message = ""
-        } catch { message = error.localizedDescription }
+            guard current() else { queuedRefresh = true; queuedScan = queuedScan || full; return }
+            if change.albumsChanged && !full { albums = try await Task.detached { PhotoScanner().albums() }.value }
+            if full || !change.updated.isEmpty || !change.removed.isEmpty {
+                try await readDirectory()
+                let available = try await Task.detached { try LocalCatalog.index(store: store, album: nil, kind: nil, unbacked: false).positions }.value
+                selected = selected.filter { available[$0.key] != nil }
+            }
+            guard current() else { queuedRefresh = true; return }
+        } catch is CancellationError { photoChanges.requireFullScan() }
+        catch { photoChanges.requireFullScan(); message = error.localizedDescription }
     }
     @MainActor private func selectScope(day: Date? = nil, deselect: Bool = false) async {
         guard isSelecting, !busy else { return }
         let generation = selectionGeneration
+        let identity = coordinator.profile
+        let ids = day == nil ? directory.entries.map(\.id) : directory.sections.first { $0.id == day }?.entries.map(\.id) ?? []
+        if deselect { for id in ids { selected.removeValue(forKey: id) }; return }
         busy = true
         defer {
             busy = false
@@ -479,71 +551,52 @@ struct LocalGalleryScreen: View {
                 Task { await load(scan: scan) }
             }
         }
-        let identity = coordinator.profile
         do {
-            let store = try coordinator.store(); let filter = kind; let missing = unbacked; let chosenAlbum = album
+            let store = try coordinator.store()
             let chosen = try await Task.detached { () -> [LocalMedia] in
-                var all: [LocalMedia] = []; var offset = 0
-                while true {
-                    let page = try LocalCatalog.page(store: store, album: chosenAlbum,
-                        kind: filter, unbacked: missing, offset: offset, limit: 1000)
-                    all.append(contentsOf: page.filter { day == nil || $0.day == day }); offset += page.count
-                    if page.count < 1000 { return all }
+                var all: [LocalMedia] = []
+                for offset in stride(from: 0, to: ids.count, by: 1000) {
+                    try Task.checkCancellation()
+                    all += try LocalCatalog.items(store: store, ids: Array(ids[offset..<min(ids.count, offset + 1000)]))
                 }
+                return all
             }.value
-            guard isSelecting, generation == selectionGeneration,
-                identity == coordinator.profile, chosenAlbum == album, filter == kind, missing == unbacked else { return }
-            if let day {
-                selectionScopes[day] = Set(chosen.map(\.id))
-            } else {
-                selectionScopes = Dictionary(grouping: chosen, by: \.day).mapValues { Set($0.map(\.id)) }
-            }
-            for row in chosen {
-                if deselect { selected.removeValue(forKey: row.id) }
-                else { selected[row.id] = row }
-            }
+            guard isSelecting, generation == selectionGeneration, identity == coordinator.profile else { return }
+            for row in chosen { selected[row.id] = row }
         } catch { message = error.localizedDescription }
     }
+
 }
 struct PhotoKitImage: View {
     let id: String
     let preview: Bool
     var onTap: (() -> Void)? = nil
     var thumbnailSize: CGFloat = 300
+    var modified: Int64 = 0
     @State private var image: UIImage?
     @State private var request: PHImageRequestID?
+    @State private var identity = UUID()
+    private var manager: PHImageManager { preview ? PHImageManager.default() : PhotoKitThumbnails.shared.manager }
     var body: some View {
         Group {
             if let image {
                 if preview { ZoomablePhoto(image: image, onTap: onTap) } else { Image(uiImage: image).resizable().scaledToFill() }
             } else if preview { Color.black.onTapGesture { onTap?() } }
             else { Color(uiColor: .secondarySystemBackground).overlay { Image(systemName: "photo").foregroundStyle(.tertiary) } }
-        }.onAppear {
+        }
+        .task(id: "\(id)-\(modified)-\(preview)-\(thumbnailSize)") {
+            if let request { manager.cancelImageRequest(request) }
+            identity = UUID(); let generation = identity
+            image = nil
             guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject else { return }
-            let options = PHImageRequestOptions(); options.deliveryMode = .opportunistic; options.isNetworkAccessAllowed = preview
-            request = PHImageManager.default().requestImage(for: asset, targetSize: CGSize(width: preview ? 2048 : thumbnailSize, height: preview ? 2048 : thumbnailSize), contentMode: .aspectFit, options: options) { value, _ in
-                DispatchQueue.main.async { image = value }
-            }
-        }.onDisappear { if let request { PHImageManager.default().cancelImageRequest(request) }; image = nil }
-    }
-}
-struct PhotoKitVideo: UIViewControllerRepresentable {
-    let id: String
-    func makeCoordinator() -> Coordinator { Coordinator() }
-    func makeUIViewController(context: Context) -> AVPlayerViewController {
-        let controller = AVPlayerViewController()
-        if let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject {
-            let options = PHVideoRequestOptions(); options.isNetworkAccessAllowed = true
-            context.coordinator.request = PHImageManager.default().requestPlayerItem(forVideo: asset, options: options) { item, _ in
-                DispatchQueue.main.async { controller.player = item.map { AVPlayer(playerItem: $0) } }
+            let options = preview ? PHImageRequestOptions() : PhotoKitThumbnails.options()
+            if preview { options.deliveryMode = .opportunistic; options.isNetworkAccessAllowed = true }
+            let size = preview ? CGFloat(2048) : PhotoKitThumbnails.size(thumbnailSize)
+            request = manager.requestImage(for: asset, targetSize: CGSize(width: size, height: size),
+                contentMode: preview ? .aspectFit : .aspectFill, options: options) { value, _ in
+                DispatchQueue.main.async { if generation == identity { image = value } }
             }
         }
-        return controller
+        .onDisappear { identity = UUID(); if let request { manager.cancelImageRequest(request) }; request = nil; image = nil }
     }
-    func updateUIViewController(_ controller: AVPlayerViewController, context: Context) {}
-    static func dismantleUIViewController(_ controller: AVPlayerViewController, coordinator: Coordinator) {
-        if let request = coordinator.request { PHImageManager.default().cancelImageRequest(request) }
-        controller.player?.pause(); controller.player = nil
-    }
-    final class Coordinator { var request: PHImageRequestID? }
 }

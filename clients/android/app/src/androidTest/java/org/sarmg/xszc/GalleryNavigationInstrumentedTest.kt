@@ -122,6 +122,58 @@ class GalleryNavigationInstrumentedTest {
 
     private fun firstPhoto(): SemanticsNodeInteraction = compose.onAllNodes(hasTestTagPrefix("gallery.photo.")).onFirst()
 
+    @Test fun videoOpensFullScreenPausedAndSupportsSeekingSpeedAndBackupSelection() {
+        val name = "video-preview-${UUID.randomUUID()}.mp4"
+        val uri = context.contentResolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, ContentValues().apply {
+            put(MediaStore.Video.Media.DISPLAY_NAME, name)
+            put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
+            put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/XszcLayoutTest")
+            put(MediaStore.Video.Media.DATE_TAKEN, 1_900_000_000_000L)
+            put(MediaStore.Video.Media.IS_PENDING, 1)
+        })!!
+        photos += uri
+        InstrumentationRegistry.getInstrumentation().context.assets.open("video-preview.mp4").use { input ->
+            context.contentResolver.openOutputStream(uri)!!.use { output -> input.copyTo(output) }
+        }
+        context.contentResolver.update(uri, ContentValues().apply { put(MediaStore.Video.Media.IS_PENDING, 0) }, null, null)
+        compose.waitUntil(30_000) { compose.onAllNodesWithTag("gallery.photo.$uri").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("gallery.photo.$uri").performClick()
+        compose.waitUntil(15_000) { compose.onAllNodesWithContentDescription("播放").fetchSemanticsNodes().isNotEmpty() }
+        val viewport = compose.onNodeWithTag("video.preview").fetchSemanticsNode().boundsInRoot
+        assertEquals(context.resources.displayMetrics.widthPixels.toFloat(), viewport.width, 1f)
+        assertEquals(context.resources.displayMetrics.heightPixels.toFloat(), viewport.height, 1f)
+        compose.onNodeWithText(name).assertDoesNotExist()
+        compose.onNodeWithText("状态待确认").assertDoesNotExist()
+        compose.onNodeWithText("不再自动备份此项目").assertDoesNotExist()
+        compose.onNodeWithTag("video.progress").assertIsDisplayed()
+        compose.onNodeWithTag("video.speed").performClick()
+        compose.onNodeWithText("1.5×").performClick()
+        compose.onNodeWithTag("video.speed").assertTextContains("1.5×")
+        // Changing speed while paused must not start playback.
+        compose.onNodeWithContentDescription("播放").assertIsDisplayed()
+        val progress = compose.onNodeWithTag("video.progress")
+        progress.performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) { set -> assertTrue(set(6_000f)) }
+        compose.waitUntil(5_000) {
+            progress.fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.ProgressBarRangeInfo].current >= 5_500f
+        }
+        screenshot("video-fullscreen-paused")
+        compose.onNodeWithContentDescription("播放").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithContentDescription("暂停").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(5_000) {
+            progress.fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.ProgressBarRangeInfo].current > 6_500f
+        }
+        compose.onNodeWithContentDescription("暂停").performClick()
+        compose.onNodeWithTag("video.backup").performClick()
+        compose.onNodeWithTag("video.backup").assertTextContains("已选择")
+        compose.onNodeWithContentDescription("播放").performClick()
+        compose.activityRule.scenario.moveToState(Lifecycle.State.CREATED)
+        compose.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
+        compose.waitUntil(5_000) { compose.onAllNodesWithContentDescription("播放").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("video.close").performClick()
+        compose.onNodeWithTag("video.preview").assertDoesNotExist()
+        compose.onNodeWithText("已选 1 项").assertIsDisplayed()
+    }
+
     private fun pinch(scale: Float) {
         compose.onNodeWithTag("gallery.grid").performTouchInput {
             val midpoint = center
@@ -184,34 +236,34 @@ class GalleryNavigationInstrumentedTest {
     }
 
     @Test fun mediaStoreChangesAutomaticallyRefreshGallery() {
-        compose.waitUntil(30_000) { compose.onAllNodesWithText("已载入 40 项").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(30_000) { compose.onAllNodesWithText("共 40 项").fetchSemanticsNodes().isNotEmpty() }
         val uri = insertPhoto(50); photos += uri
-        compose.waitUntil(30_000) { compose.onAllNodesWithText("已载入 41 项").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(30_000) { compose.onAllNodesWithText("共 41 项").fetchSemanticsNodes().isNotEmpty() }
     }
 
-    @Test fun paginationRetainsLoadedPagesAfterResumeAndMediaStoreChanges() {
+    @Test fun completeDirectoryScrollsPastPageBoundariesAndKeepsPositionAcrossRefresh() {
         repeat(321) { photos += insertPhoto(1000 + it) }
+        compose.waitUntil(30_000) { compose.onAllNodesWithText("共 361 项").fetchSemanticsNodes().isNotEmpty() }
         compose.waitUntil(30_000) { compose.onNodeWithTag("gallery.filter").isEnabled() }
-        loadNextPage(300)
+        compose.onNodeWithText("加载更多").assertDoesNotExist()
+        val oldest = "gallery.photo.${photos.first()}"
+        compose.onNodeWithTag("gallery.grid").performScrollToNode(hasTestTag(oldest))
+        compose.onNodeWithTag(oldest).assertIsDisplayed()
+        val position = compose.onNodeWithTag(oldest).fetchSemanticsNode().boundsInRoot.top
         compose.activityRule.scenario.moveToState(Lifecycle.State.CREATED)
         compose.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
         compose.waitUntil(30_000) { compose.onNodeWithTag("gallery.filter").isEnabled() }
-        compose.onNodeWithTag("gallery.grid").performScrollToIndex(0)
-        compose.onNodeWithText("已载入 300 项").assertIsDisplayed()
-        loadNextPage(361)
-        compose.onNodeWithText("加载更多").assertDoesNotExist()
+        compose.onNodeWithTag(oldest).assertIsDisplayed()
+        assertEquals(position, compose.onNodeWithTag(oldest).fetchSemanticsNode().boundsInRoot.top, 2f)
         photos += insertPhoto(1400)
-        compose.waitUntil(30_000) { compose.onAllNodesWithText("已载入 362 项").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithText("加载更多").assertDoesNotExist()
-        compose.onNodeWithTag("gallery.filter").assertIsEnabled()
-    }
-
-    private fun loadNextPage(expected: Int) {
-        compose.onNodeWithTag("gallery.grid").performScrollToNode(hasText("加载更多"))
-        compose.onNodeWithText("加载更多").performClick()
-        compose.onNodeWithTag("gallery.grid").performScrollToIndex(0)
-        compose.waitUntil(30_000) { compose.onAllNodesWithText("已载入 $expected 项").fetchSemanticsNodes().isNotEmpty() }
         compose.waitUntil(30_000) { compose.onNodeWithTag("gallery.filter").isEnabled() }
+        compose.onNodeWithTag(oldest).assertIsDisplayed()
+        compose.onNodeWithTag("gallery.grid").performScrollToIndex(0)
+        compose.waitUntil(30_000) { compose.onAllNodesWithText("共 362 项").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("gallery.select").performClick()
+        compose.onNodeWithTag("gallery.select-all").performClick()
+        compose.waitUntil(30_000) { compose.onAllNodesWithText("已选 362 项").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("加载更多").assertDoesNotExist()
     }
 
     @Test fun logoutPersistsAndKeepsReusableCredentials() {

@@ -153,3 +153,118 @@ fn interrupted_catalog_scan_keeps_previous_page_until_finish() {
     assert_eq!(page(&c).as_array().unwrap().len(), 1);
     assert_eq!(page(&c)[0]["source_id"], "new");
 }
+
+fn local_asset(index: usize) -> Value {
+    json!({"source_id":format!("media-{index:06}"),"name":format!("photo-{index}"),
+        "media_kind":if index.is_multiple_of(3) { "video" } else { "photo" },
+        "album_id":if index.is_multiple_of(2) { "a" } else { "b" },
+        "created_ms":index as i64,"modified_ms":index as i64,"size":8,"descriptor":"{}"})
+}
+fn directory(c: &Client, album: Option<&str>, kind: Option<&str>, unbacked: bool) -> Value {
+    call(
+        c,
+        json!({"op":"local_index","album":album,"media_kind":kind,"unbacked":unbacked}),
+    )
+    .unwrap()
+}
+
+#[test]
+fn complete_directory_is_lightweight_and_visible_batches_resolve_stable_ids() {
+    let root = tempfile::tempdir().unwrap();
+    let c = open(&root.path().join("client.sqlite"));
+    call(&c, json!({"op":"begin_catalog"})).unwrap();
+    for start in (0..10_003).step_by(200) {
+        let items: Vec<_> = (start..(start + 200).min(10_003))
+            .map(local_asset)
+            .collect();
+        call(&c, json!({"op":"catalog","items":items})).unwrap();
+    }
+    assert!(directory(&c, None, None, false)
+        .as_array()
+        .unwrap()
+        .is_empty());
+    call(&c, json!({"op":"finish_catalog"})).unwrap();
+    let index = directory(&c, None, None, false);
+    let rows = index.as_array().unwrap();
+    assert_eq!(rows.len(), 10_003);
+    assert_eq!(rows[0]["source_id"], "media-010002");
+    assert_eq!(rows[10_002]["source_id"], "media-000000");
+    assert!(rows
+        .iter()
+        .all(|row| row.get("descriptor").is_none() && row.get("backup_state").is_none()));
+    let filtered = directory(&c, Some("a"), Some("video"), true);
+    let expected: Vec<_> = (0..10_003)
+        .rev()
+        .filter(|i| i % 6 == 0)
+        .map(|i| json!(format!("media-{i:06}")))
+        .collect();
+    assert_eq!(
+        filtered
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["source_id"].clone())
+            .collect::<Vec<_>>(),
+        expected
+    );
+    let requested = vec![
+        "media-010002",
+        "media-000150",
+        "media-000000",
+        "missing",
+        "media-000150",
+    ];
+    let details = call(&c, json!({"op":"local_items","source_ids":requested})).unwrap();
+    assert_eq!(details.as_array().unwrap().len(), 3);
+    assert!(details
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|r| r["descriptor"] == "{}" && r["backup_state"] == "unknown"));
+    assert!(call(
+        &c,
+        json!({"op":"local_items","source_ids":vec!["media-000000";1001]})
+    )
+    .is_err());
+    assert!(call(&c, json!({"op":"local_items","source_ids":[]}))
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .is_empty());
+}
+
+#[test]
+fn incremental_catalog_updates_reconcile_availability_and_retain_backup_exclusions() {
+    let root = tempfile::tempdir().unwrap();
+    let c = open(&root.path().join("client.sqlite"));
+    call(&c,json!({"op":"patch_catalog","items":[local_asset(1),local_asset(2)],"removed_source_ids":[]})).unwrap();
+    call(
+        &c,
+        json!({"op":"exclude","source_id":"media-000001","excluded":true}),
+    )
+    .unwrap();
+    let mut changed = local_asset(2);
+    changed["name"] = json!("edited");
+    changed["modified_ms"] = json!(100);
+    call(&c,json!({"op":"patch_catalog","items":[changed,local_asset(3)],"removed_source_ids":["media-000001"]})).unwrap();
+    let index = directory(&c, None, None, false);
+    assert_eq!(index.as_array().unwrap().len(), 2);
+    assert_eq!(index[1]["name"], "edited");
+    assert_eq!(index[1]["modified_ms"], 100);
+    assert_eq!(
+        call(&c, json!({"op":"is_excluded","source_id":"media-000001"})).unwrap(),
+        true
+    );
+    assert!(call(
+        &c,
+        json!({"op":"patch_catalog","items":[local_asset(2)],"removed_source_ids":["media-000002"]})
+    )
+    .is_err());
+    assert_eq!(directory(&c, None, None, false), index);
+    assert!(call(
+        &c,
+        json!({"op":"patch_catalog","items":[],"removed_source_ids":vec!["missing";1001]})
+    )
+    .is_err());
+    assert_eq!(directory(&c, None, None, false), index);
+}

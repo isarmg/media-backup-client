@@ -112,17 +112,16 @@ struct CloudVideo: View {
     let library: RemoteLibrary
     let resource: RemoteResource
     let active: Bool
-    @State private var player: AVPlayer?
+    @StateObject private var playback = VideoPlaybackModel()
     @State private var loader: VideoResourceLoader?
     var body: some View {
-        VideoPlayer(player: player)
+        VideoPlayback(model: playback, active: active)
             .onAppear {
                 let loader = VideoResourceLoader(library: library, resource: resource)
                 let asset = AVURLAsset(url: URL(string: "xszc-stream://resource/\(resource.id)")!)
                 asset.resourceLoader.setDelegate(loader, queue: DispatchQueue(label: "xszc.video.loader"))
-                self.loader = loader; player = AVPlayer(playerItem: AVPlayerItem(asset: asset))
+                self.loader = loader; playback.attach(AVPlayerItem(asset: asset))
             }
-            .onChange(of: active) { _, value in if !value { player?.pause() } }
-            .onDisappear { player?.pause(); player?.replaceCurrentItem(with: nil); loader?.cancel(); player = nil; loader = nil }
+            .onDisappear { playback.close(); loader?.cancel(); loader = nil }
     }
 }

@@ -2,6 +2,22 @@ import XCTest
 @testable import Xszc
 
 final class LocalGalleryTests: XCTestCase {
+    func testCompleteDirectoryAndVisibleDetailsHaveNo150ItemLimit() throws {
+        try withCatalog(count: 10_003) { store in
+            let directory = try LocalCatalog.index(store: store, album: nil, kind: nil, unbacked: false)
+            XCTAssertEqual(directory.entries.count, 10_003)
+            XCTAssertEqual(directory.entries.first?.id, Self.id(10_002))
+            XCTAssertEqual(directory.entries.last?.id, Self.id(0))
+            XCTAssertEqual(directory.sections.flatMap(\.entries).map(\.id), directory.entries.map(\.id))
+            XCTAssertEqual(directory.positions[Self.id(0)], 10_002)
+            let rows = try LocalCatalog.items(store: store, ids: [Self.id(10_002), Self.id(150), Self.id(0), "missing"])
+            XCTAssertEqual(Set(rows.map(\.id)), Set([Self.id(10_002), Self.id(150), Self.id(0)]))
+            XCTAssertTrue(rows.allSatisfy { $0.state == "unknown" })
+            let videos = try LocalCatalog.index(store: store, album: "a", kind: "video", unbacked: true)
+            XCTAssertEqual(videos.entries.map(\.id), (0..<10_003).reversed().filter { $0.isMultiple(of: 6) }.map(Self.id))
+        }
+    }
+
     func testPageBoundariesDoNotLoseOrRepeatPhotosAndVideos() throws {
         for total in [149, 150, 151, 300, 301, 453] {
             try withCatalog(count: total) { store in

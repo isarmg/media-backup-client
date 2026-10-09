@@ -377,8 +377,24 @@ fn resource_size_distinguishes_same_timestamp_replacements() {
     };
     gallery(json!({"op":"declare_resources","source_id":"asset","modified_ms":1,"originals":1}));
     let page = |unbacked| {
-        gallery(json!({"op":"local_page","album":null,"media_kind":null,
-            "unbacked":unbacked,"offset":0,"limit":100}))
+        let rows = gallery(json!({"op":"local_page","album":null,"media_kind":null,
+            "unbacked":unbacked,"offset":0,"limit":100}));
+        let index =
+            gallery(json!({"op":"local_index","album":null,"media_kind":null,"unbacked":unbacked}));
+        let ids = |value: &Value| {
+            value
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|row| row["source_id"].clone())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(ids(&index), ids(&rows));
+        assert_eq!(
+            gallery(json!({"op":"local_items","source_ids":ids(&index)})),
+            rows
+        );
+        rows
     };
     catalog(8);
     assert_eq!(page(false)[0]["backup_state"], "complete");
@@ -789,9 +805,23 @@ fn declared_multiresource_completeness_and_manual_override_are_precise() {
         .unwrap();
     client.transfer(request(json!({"op":"receipt","job_id":id,"asset_id":Uuid::new_v4(),"resource_id":Uuid::new_v4(),"content_blake3":job.request.content_blake3}))).unwrap();
     let page = || {
-        gallery(
+        let rows = gallery(
             json!({"op":"local_page","album":null,"media_kind":null,"unbacked":false,"offset":0,"limit":100}),
-        )
+        );
+        assert_eq!(
+            gallery(json!({"op":"local_items","source_ids":["asset"]})),
+            rows
+        );
+        let filtered = gallery(
+            json!({"op":"local_page","album":null,"media_kind":null,"unbacked":true,"offset":0,"limit":100}),
+        );
+        let index =
+            gallery(json!({"op":"local_index","album":null,"media_kind":null,"unbacked":true}));
+        assert_eq!(
+            index.as_array().unwrap().len(),
+            filtered.as_array().unwrap().len()
+        );
+        rows
     };
     assert_eq!(page()[0]["backup_state"], "queued");
     let mut motion = input;

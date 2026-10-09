@@ -2,7 +2,7 @@
 
 首次部署或日常维护请先阅读[分平台全流程指南](platform-setup.md)：按本机平台完成安装、配对、重新配对、服务/后台任务查看与启停、诊断和卸载，命令旁均说明用途。本文详细说明配置字段和业务操作。
 
-本文适用于 xszc `1.0.0`。账号、授权码和备份偏好由 Android/iOS 应用管理；项目没有用于写入这些设置的命令行接口，也不支持用 `adb`、Plist 或 SQLite 直接注入配置。
+本文适用于 xszc `1.1.0`。账号、授权码和备份偏好由 Android/iOS 应用管理；项目没有用于写入这些设置的命令行接口，也不支持用 `adb`、Plist 或 SQLite 直接注入配置。
 
 ## 命令用途与执行边界
 
@@ -113,7 +113,7 @@ xcodebuild -project Xszc.xcodeproj -scheme Xszc \
 
 模拟器构建使用本地临时签名，无需 Apple Developer 证书。不要设置 `CODE_SIGNING_ALLOWED=NO` 运行配对流程，否则钥匙串可能返回 `-34018`，导致服务器已完成配对而应用无法保存凭据。
 
-仓库 Release 提供的 `xszc-ios-1.0.0-unsigned.ipa` 未签名，不能直接作为普通设备安装包。请使用自己的 Apple Developer 身份签名，再通过 Xcode、Apple Configurator 或受管理部署系统安装；仓库不保存或接收签名凭据。
+仓库 Release 提供的 `xszc-ios-1.1.0-unsigned.ipa` 未签名，不能直接作为普通设备安装包。请使用自己的 Apple Developer 身份签名，再通过 Xcode、Apple Configurator 或受管理部署系统安装；仓库不保存或接收签名凭据。
 
 ## 5. iOS 配对与备份设置
 

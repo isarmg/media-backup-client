@@ -20,7 +20,9 @@ SQLx 产品连接和事务封装没有 unsafe。Rust slice 复制可替代一般
 
 正式状态以 Git tag、最终 Source 工作流和 Release 产物为准。Rust 1.99.0 是截至 2026-10-07 的当前正式版；Tokio 选择稳定的 ~1.53.2，兼容补丁由根 Cargo.lock 锁定。unsafe function 内的原始解引用和 foreign 调用必须放进显式 unsafe 块（unsafe_op_in_unsafe_fn = deny）。这项约束检查操作边界，不替代原生 ABI、权限与生命周期验证。正式输入和用户数据身份分开记录，不通过发行号推导持久状态。
 
-当前软件发行号为 1.0.0，移动状态 1.0.0、ABI 1 保留；xcsc-client.toml 修正为实际精确消费的 Foundation 1.0.0。产品协议 crate 1.0.0 固定官方 Server 源 ad2688c00c9fb9df4e137399f4a02fee858742a7，移动传输结构不随 crate 版本改变；用户已有 iOS 26 与 IPA 修复保留并纳入原生脚本验证。
+当前软件发行号为 1.1.0，移动状态 1.0.0、ABI 1 保留；xcsc-client.toml 修正为实际精确消费的 Foundation 1.0.0。产品协议 crate 1.0.0 固定官方 Server 源 ad2688c00c9fb9df4e137399f4a02fee858742a7，移动传输结构不随 crate 版本改变；用户已有 iOS 26 与 IPA 修复保留并纳入原生脚本验证。
+
+1.1.0 加入全量轻量本地目录、按 ID 读取详情和增量目录更新，使用参数绑定及现有 SQLite 事务；未新增 unsafe、FFI 签名、依赖或 Schema 变更。两端改为按需缩略图和全屏视频播放，验证入口与原生执行边界见 [1.1.0 说明](releases/1.1.0.md)。
 
 1.0.0 修复 Android/iOS 本地图库 150 项后的分页与自动刷新冲突，保留已加载页数并用额外一项判断真实分页结尾。新增图库边界、筛选和生命周期回归验证；未修改 Rust 行为、FFI、依赖、数据库或持久身份。正式原生构建、签名与制品验证见 [1.0.0 说明](releases/1.0.0.md)。
 
@@ -34,7 +36,7 @@ SQLx 产品连接和事务封装没有 unsafe。Rust slice 复制可替代一般
 
 | 适用条款 | 当前实现与本轮验收 | 真实限制 |
 |---|---|---|
-| 2–5、19：职责、目录与身份 | Rust workspace的client-core、crypto、mobile-ffi是真实独立职责；clients/android、clients/ios拥有UI/系统照片机制。只保留根Cargo.lock。软件1.0.0、mobile-v1、schema1、epoch、C/JNI ABI1分别校验，不按发行号迁移队列。 | 移动不是桌面daemon；CLI/SCM/Web约束不强行植入移动应用。 |
+| 2–5、19：职责、目录与身份 | Rust workspace的client-core、crypto、mobile-ffi是真实独立职责；clients/android、clients/ios拥有UI/系统照片机制。只保留根Cargo.lock。软件1.1.0、mobile-v1、schema1、epoch、C/JNI ABI1分别校验，不按发行号迁移队列。 | 移动不是桌面daemon；CLI/SCM/Web约束不强行植入移动应用。 |
 | 6–8、11–14：状态和副作用 | 固定schema/hash、NOFOLLOW VFS、真实SQLx事务与私有目录校验；实例/照片/task稳定身份、prepared parts和SQL状态协调。授权码轮换保留同实例队列，错实例拒绝；取消与完成分开；照片和prepared bytes有预算。 | 设备权限、PhotoKit/WorkManager后台调度由OS决定，UI启用不等于后台传输已完成。 |
 | 15–16：日志和界面 | 账户、Token、授权码不进入诊断；Android私有配置、iOS Keychain及UI区分照片权限、排队、传输和完成。 | Native UI、真机照片权限/后台以及实际安装与签名需最终平台执行证明。 |
 | 20–23：验证与发行 | 0.6.4 本机验证见上文，历史 0.6.3、0.6.2 证据独立保留。cargo-ndk4.1.2、Temurin官方SemVer17.0.20+101精确安装，实际runtime17.0.20.1+1和XcodeGen2.46.0在构建前验证。 | 模拟器不代替真机安装/照片后台行为。新版本 Release 须再次核验 Android 唯一 signer 和 iOS unsigned 标志。 |

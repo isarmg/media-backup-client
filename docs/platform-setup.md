@@ -1,12 +1,12 @@
 # xszc 分平台安装与维护
 
-适用于 xszc `1.0.0`。Android 与 iOS 都通过应用完成配对、设置和任务管理；Client 没有桌面服务或用于注入账户信息的 CLI。本指南覆盖安装、重新配对、后台任务查看/启停、诊断、升级和卸载，具体备份设置见[配置指南](configuration.md)，队列数据边界见[运维文档](operations.md)。
+适用于 xszc `1.1.0`。Android 与 iOS 都通过应用完成配对、设置和任务管理；Client 没有桌面服务或用于注入账户信息的 CLI。本指南覆盖安装、重新配对、后台任务查看/启停、诊断、升级和卸载，具体备份设置见[配置指南](configuration.md)，队列数据边界见[运维文档](operations.md)。
 
 ## 安装前准备
 
 1. 请 Server 管理员创建备份实例，提供 Server HTTPS 根地址和实例授权码。应用登录弹窗中的“密码”就是此授权码。
 2. Server 地址例如 `https://backup.example.com`，不能附加 `/admin`、`/v1`、查询参数或片段。手机需能访问它，设备时间与证书必须正常。
-3. 从 [Client Releases](https://github.com/isarmg/xszc/releases) 下载同版资产与 `SHA256SUMS`。Android 正式包是 `xszc-android-1.0.0-arm64.apk`；iOS 是未签名的 `xszc-ios-1.0.0-unsigned.ipa`。
+3. 从 [Client Releases](https://github.com/isarmg/xszc/releases) 下载同版资产与 `SHA256SUMS`。Android 正式包是 `xszc-android-1.1.0-arm64.apk`；iOS 是未签名的 `xszc-ios-1.1.0-unsigned.ipa`。
 4. 安装包、手机系统版本、CPU 架构要匹配。Android 最低 API 26（Android 8），正式 APK 仅 arm64-v8a；iOS 最低 26.0。不要用卸载来解决 Debug/Release 签名冲突，卸载会删除待传数据。
 5. ADB/curl 等命令在开发机执行，不需要安装到手机。注释解释用途；`ACTUAL_PID` 换成实际进程 ID，域名换成你的 Server。
 
@@ -30,13 +30,13 @@ curl -fsS --max-time 15 -o /dev/null -w '%{http_code}\n' https://backup.example.
 
 ```sh
 # 计算正式 APK 哈希，人工与同版 SHA256SUMS 的对应行比较。
-sha256sum ./xszc-android-1.0.0-arm64.apk
+sha256sum ./xszc-android-1.1.0-arm64.apk
 # 列出设备；应为 device，unauthorized 需在手机确认。多设备时给每条 adb 加 -s 实际序列号。
 adb devices
 # 查看 CPU ABI，正式包要求列表包含 arm64-v8a。
 adb shell getprop ro.product.cpu.abilist
 # 覆盖安装同签名应用，-r 保留已有应用数据；看到 Success 才继续。
-adb install -r ./xszc-android-1.0.0-arm64.apk
+adb install -r ./xszc-android-1.1.0-arm64.apk
 # 打开应用主界面。
 adb shell am start -n org.sarmg.xszc/.MainActivity
 # 只读查看安装版本及权限信息，核对 versionName 与目标版本。
@@ -117,11 +117,11 @@ adb shell pm path org.sarmg.xszc
 
 ### 1. 安装与签名
 
-Release 的 `xszc-ios-1.0.0-unsigned.ipa` 是未签名制品，不能直接在普通 iPhone 上安装。先校验：
+Release 的 `xszc-ios-1.1.0-unsigned.ipa` 是未签名制品，不能直接在普通 iPhone 上安装。先校验：
 
 ```sh
 # 在 macOS 计算 IPA 的 SHA-256，与同版 SHA256SUMS 对比。
-shasum -a 256 ./xszc-ios-1.0.0-unsigned.ipa
+shasum -a 256 ./xszc-ios-1.1.0-unsigned.ipa
 ```
 
 组织已有 Apple 签名/受管理部署流程时，用自己的有效签名身份与适用于目标设备的 provisioning 完成签名，再通过该部署流程安装。仓库不提供签名证书或通用重签助手。

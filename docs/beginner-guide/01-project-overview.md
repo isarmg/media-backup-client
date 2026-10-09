@@ -47,7 +47,7 @@ Hash 等基础能力；`client-core` 定义移动任务库；`mobile-ffi` 只做
 
 ## 当前版本身份
 
-Client 发行版本由根目录 `VERSION` 指定，当前为 `1.0.0`。持久状态与 wire 合同有独立兼容身份：产品
+Client 发行版本由根目录 `VERSION` 指定，当前为 `1.1.0`。持久状态与 wire 合同有独立兼容身份：产品
 `xszc`、应用版本 `1.0.0`、revision 1、移动 HTTP `/v1`、存储 `plain-v1`、epoch
 `xszc-mobile-v1`、本地 SQLite schema revision 1 和 Foundation ABI revision 1。发行号变化
 不会静默改写这些持久化身份；合同字段或本地 Schema 不匹配时失败关闭。

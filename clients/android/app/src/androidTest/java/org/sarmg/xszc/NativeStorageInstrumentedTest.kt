@@ -81,6 +81,24 @@ class NativeStorageInstrumentedTest {
         } finally { NativeBridgeV1.close(handle) }
     }
 
+    @Test fun completeGalleryDirectoryAndVisibleDetailsHaveNo150ItemLimit() {
+        val handle = open(storage())
+        try {
+            catalog(handle, 10_003)
+            val directory = LocalGalleryDirectory.from(LocalCatalog.index(handle, null, null, false))
+            assertEquals(10_003, directory.entries.size)
+            assertEquals("media-10002", directory.entries.first().id)
+            assertEquals("media-0", directory.entries.last().id)
+            assertEquals(10_002, directory.positions["media-0"])
+            assertEquals(directory.entries, directory.days.values.flatten())
+            val details = LocalCatalog.items(handle, listOf("media-10002", "media-150", "media-0", "missing"))
+            assertEquals(setOf("media-10002", "media-150", "media-0"), details.map { it.getString("source_id") }.toSet())
+            assertTrue(details.all { it.getString("backup_state") == "unknown" })
+            val videos = LocalCatalog.index(handle, "a", "video", true)
+            assertEquals((0 until 10_003).reversed().filter { it % 6 == 0 }.map { "media-$it" }, videos.map { it.getString("source_id") })
+        } finally { NativeBridgeV1.close(handle) }
+    }
+
     private fun catalog(handle: Long, count: Int) {
         TransferStore.gallery(handle, "begin_catalog")
         (0 until count).chunked(200).forEach { indices ->

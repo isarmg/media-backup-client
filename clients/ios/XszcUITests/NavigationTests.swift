@@ -1,7 +1,61 @@
 import XCTest
 
 final class NavigationTests: XCTestCase {
-    @MainActor func testLocalPaginationKeepsLoadedPagesAfterForegroundRefresh() throws {
+    @MainActor func testVideoOpensFullScreenPausedAndSupportsSeekingSpeedAndBackupSelection() {
+        continueAfterFailure = false
+        let monitor = monitorFullPhotoAccess()
+        defer { removeUIInterruptionMonitor(monitor) }
+        let app = XCUIApplication()
+        app.launchArguments += ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN", "-gallery_grid_columns", "3"]
+        app.launch()
+        defer { app.terminate() }
+        requestPhotoAccess(app)
+        let tile = app.descendants(matching: .any).matching(identifier: "media.tile.layout-video.mp4").firstMatch
+        for _ in 0..<30 {
+            if tile.isHittable { break }
+            app.scrollViews["gallery.scroll"].swipeUp(velocity: .fast)
+        }
+        XCTAssertTrue(tile.isHittable, "Seed the video fixture with scripts/seed-ios-ui.sh")
+        tile.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        let preview = app.descendants(matching: .any).matching(identifier: "video.preview").firstMatch
+        XCTAssertTrue(preview.waitForExistence(timeout: 5))
+        XCTAssertEqual(preview.frame.width, app.frame.width, accuracy: 1)
+        XCTAssertEqual(preview.frame.height, app.frame.height, accuracy: 1)
+        let play = app.buttons["video.play"]
+        XCTAssertTrue(play.waitForExistence(timeout: 15))
+        XCTAssertEqual(play.label, "播放")
+        XCTAssertFalse(app.staticTexts["layout-video.mp4"].exists)
+        XCTAssertFalse(app.staticTexts["状态待确认"].exists)
+        XCTAssertFalse(app.buttons["不再自动备份此项目"].exists)
+        app.buttons["video.speed"].tap()
+        app.buttons["1.5×"].tap()
+        XCTAssertEqual(app.buttons["video.speed"].value as? String, "1.5×")
+        XCTAssertEqual(play.label, "播放", "Changing speed must keep the video paused")
+        let progress = app.descendants(matching: .any).matching(identifier: "video.progress").firstMatch
+        XCTAssertTrue(progress.exists)
+        progress.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        let seeked = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value BEGINSWITH %@", "00:06"), object: progress)
+        XCTAssertEqual(XCTWaiter.wait(for: [seeked], timeout: 5), .completed)
+        screenshot("video-fullscreen-paused")
+        play.tap()
+        let playing = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "暂停"), object: play)
+        XCTAssertEqual(XCTWaiter.wait(for: [playing], timeout: 5), .completed)
+        let advanced = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value BEGINSWITH %@", "00:07"), object: progress)
+        XCTAssertEqual(XCTWaiter.wait(for: [advanced], timeout: 5), .completed)
+        play.tap()
+        app.buttons["video.backup"].tap()
+        XCTAssertEqual(app.buttons["video.backup"].label, "取消选择备份")
+        play.tap()
+        XCUIDevice.shared.press(.home)
+        app.activate()
+        XCTAssertTrue(play.waitForExistence(timeout: 5))
+        XCTAssertEqual(play.label, "播放")
+        app.buttons["video.close"].tap()
+        XCTAssertTrue(app.buttons["gallery.cancel-selection"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.staticTexts["gallery.selected-count"].label, "已选 1 项")
+    }
+
+    @MainActor func testCompleteDirectoryScrollsPastPageBoundariesAndKeepsPositionAcrossRefresh() throws {
         continueAfterFailure = false
         let monitor = monitorFullPhotoAccess()
         defer { removeUIInterruptionMonitor(monitor) }
@@ -10,27 +64,29 @@ final class NavigationTests: XCTestCase {
         app.launch()
         defer { app.terminate() }
         requestPhotoAccess(app)
+        let initialIdle = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: app.buttons["gallery.filter"])
+        XCTAssertEqual(XCTWaiter.wait(for: [initialIdle], timeout: 30), .completed)
         let loaded = app.staticTexts["gallery.loaded-count"]
-        guard loaded.label == "已载入 150 项", app.buttons["gallery.load-more"].exists else {
-            throw XCTSkip("Run with a simulator photo library containing more than 150 photos and videos")
-        }
-        let more = app.buttons["gallery.load-more"]
+        let count = Int(loaded.label.split(separator: " ").dropFirst().first ?? "0") ?? 0
+        guard count > 150 else { throw XCTSkip("Seed the complete gallery with scripts/seed-ios-ui.sh") }
+        XCTAssertFalse(app.buttons["gallery.load-more"].exists)
+        let older = app.descendants(matching: .any).matching(identifier: "media.tile.gallery-page-001.png").firstMatch
         let scroll = app.scrollViews["gallery.scroll"]
-        for _ in 0..<12 {
-            if more.isHittable { break }
+        for _ in 0..<30 {
+            if older.isHittable { break }
             scroll.swipeUp(velocity: .fast)
         }
-        XCTAssertTrue(more.isHittable)
-        more.tap()
-        let appended = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label != %@", "已载入 150 项"), object: loaded)
-        XCTAssertEqual(XCTWaiter.wait(for: [appended], timeout: 20), .completed, app.debugDescription)
-        let count = loaded.label
-        XCTAssertFalse(app.progressIndicators["gallery.loading-more"].exists)
+        XCTAssertTrue(older.isHittable, app.debugDescription)
+        let position = older.frame.minY
+        let total = loaded.label
         XCUIDevice.shared.press(.home)
         app.activate()
         let idle = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: app.buttons["gallery.filter"])
         XCTAssertEqual(XCTWaiter.wait(for: [idle], timeout: 20), .completed)
-        XCTAssertEqual(loaded.label, count)
+        XCTAssertTrue(older.isHittable)
+        XCTAssertEqual(older.frame.minY, position, accuracy: 2)
+        XCTAssertEqual(loaded.label, total)
+        XCTAssertFalse(app.buttons["gallery.load-more"].exists)
     }
 
     @MainActor func testTransfersStartWithTwoCollapsedCapsules() {
@@ -78,10 +134,9 @@ final class NavigationTests: XCTestCase {
         XCTAssertFalse(app.buttons["account.open"].exists)
         requestPhotoAccess(app)
         screenshot("local-gallery-loading")
-        let photos = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "media.tile.")).allElementsBoundByIndex
-        let top = app.buttons["gallery.filter"].frame.maxY + 8
-        let bottom = app.tabBars.firstMatch.frame.minY - 8
-        let photo = photos.first { $0.frame.minY >= top && $0.frame.maxY <= bottom && $0.isHittable }!
+        let photo = app.descendants(matching: .any).matching(identifier: "media.tile.layout-photo-1.png").firstMatch
+        XCTAssertTrue(photo.waitForExistence(timeout: 15))
+        XCTAssertTrue(photo.isHittable)
         photo.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         let preview = app.descendants(matching: .any).matching(identifier: "gallery.preview").firstMatch
         XCTAssertTrue(preview.waitForExistence(timeout: 5))
@@ -212,7 +267,7 @@ final class NavigationTests: XCTestCase {
         app.launch()
         defer { app.terminate() }
         requestPhotoAccess(app)
-        let count = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "已载入 ")).firstMatch
+        let count = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "共 ")).firstMatch
         XCTAssertTrue(count.waitForExistence(timeout: 10))
         let initialCount = Int(count.label.split(separator: " ")[1])!
         screenshot("gallery-waiting-for-new-photo")
@@ -220,7 +275,7 @@ final class NavigationTests: XCTestCase {
         print("XSZC_UI_READY_FOR_PHOTO_CHANGE")
         // Hosted PhotoKit import/catalog work can outlive addmedia returning.
         // Keep a bounded wait and require the actual new count and named tile.
-        XCTAssertTrue(app.staticTexts["已载入 \(initialCount + 1) 项"].waitForExistence(timeout: 240), app.debugDescription)
+        XCTAssertTrue(app.staticTexts["共 \(initialCount + 1) 项"].waitForExistence(timeout: 240), app.debugDescription)
         XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "media.tile.layout-auto-refresh.png").firstMatch.exists)
         screenshot("gallery-auto-refreshed")
     }

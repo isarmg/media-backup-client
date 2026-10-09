@@ -1,6 +1,6 @@
 # Media Backup 完整功能与取舍清单
 
-本文以 xszc `1.0.0` 当前工作树为主，盘点 Rust Client、Android、iOS，并保留与独立
+本文以 xszc `1.1.0` 当前工作树为主，盘点 Rust Client、Android、iOS，并保留与独立
 Server、React 管理 Web交互的系统边界。Server 路径均指
 [xszs](https://github.com/isarmg/xszs)，不是本仓库内的可执行源码。
 清单覆盖协议、存储和交付闭包。各仓库代码、当前 Schema、移动 epoch、FFI header 和发行工作流是最终
@@ -47,7 +47,7 @@ React 管理页、配置与 systemd、发行 identity/manifest、CI/脚本、正
 | MED-P-001 | Android/iOS 把授权范围内的照片、视频和设备生成缩略图备份到自托管 Server | `clients/android`、`clients/ios`、Server 仓库 | 核心 | 高 | 项目不再是完整移动媒体备份系统 | 两平台至少一条原始媒体+缩略图端到端 |
 | MED-P-002 | Server 唯一支持 `x86_64-unknown-linux-gnu`，正式主机唯一为 Linux AMD64 | `xcss-server-target`、server `build.rs`、release/systemd/scripts | 保障 | 高 | 会产生未经验证的 Server 平台制品 | 非目标编译、错误 ELF、错误 uname、systemd architecture |
 | MED-P-003 | Android/iOS 客户端继续按各自平台架构构建；“Server 仅 AMD64”不限制移动 ABI | Android NDK targets、Apple targets | 核心 | 高 | 若误删移动架构，真机无法加载 Rust core | arm64 Android/iOS；模拟器；ABI/header 一致 |
-| MED-P-004 | Client 发行号为 `1.0.0`；持久合同只接受应用版本 `1.0.0`、revision 1 与 `xszc-mobile-v1` | `VERSION`、Client constants、release identity | 保障 | 高 | 把发行号误作状态版本会意外破坏现有队列 | 非当前 product/version/revision/epoch 零写入拒绝 |
+| MED-P-004 | Client 发行号为 `1.1.0`；持久合同只接受应用版本 `1.0.0`、revision 1 与 `xszc-mobile-v1` | `VERSION`、Client constants、release identity | 保障 | 高 | 把发行号误作状态版本会意外破坏现有队列 | 非当前 product/version/revision/epoch 零写入拒绝 |
 | MED-P-006 | 本仓库的移动宿主位于 `clients/`、共享核心位于 `crates/`；Server 的 `config/` 与 `deploy/` 只存在于独立仓库 | 仓库目录 | 开发运维 | 低 | 跨仓库事实源被误作本地路径 | README、脚本和 CI 不调用缺失目录 |
 | MED-P-007 | 本仓库只包含 Android/iOS；React/Vite 管理客户端位于独立 Server 仓库 | 目录结构、仓库边界文档 | 开发运维 | 低 | 跨仓库命令和源码路径被混用 | README、CI、构建脚本只引用本仓库实际路径 |
 | MED-P-008 | 原始媒体在 Server 使用 `plain-v1` 明文字节，传输机密性依赖 HTTPS | `StorageEncoding::PlainV1`、`crates/crypto` | 核心 | 高 | 改成端到端密文会重写缩略图、恢复、去重和密钥生命周期 | byte-for-byte round trip；HTTP 明文直连不得公网暴露 |
@@ -279,3 +279,7 @@ Server 与 Client 在打开状态前先验证唯一当前 Schema 和身份。发
 手动选择批次、本地网格与多资源角标、自动排除、分页和增量图库、全库筛选、派生预览、
 流式视频与缓存设置均已接入；当前实现、自动化检查和设备验收边界见 [实施记录](manual-backup-implementation.md)。
 下载原件额外核对实际长度；iOS 使用有字节预算的流式临时文件下载。两端恢复前都对暂存文件重算 BLAKE3。
+
+## Client 1.1.0 图库和视频
+
+本地图库改为全量轻量目录和按需缩略图，取消 150 项手动分页；按系统变更增量刷新，详情缓存有容量上限，选择全部覆盖当前筛选。视频使用黑色全屏自定义播放器，默认暂停，支持进度定位、倍速和备份选择。软件版本升级不改变移动状态或数据库身份，见 [1.1.0 说明](releases/1.1.0.md)。
