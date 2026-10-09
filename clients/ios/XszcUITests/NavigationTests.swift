@@ -245,9 +245,13 @@ final class NavigationTests: XCTestCase {
         requestPhotoAccess(app)
         let filter = app.buttons["gallery.filter"]
         let select = app.buttons["gallery.select"]
+        let idle = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: filter)
+        XCTAssertEqual(XCTWaiter.wait(for: [idle], timeout: 60), .completed)
         let filterFrame = filter.frame
         let selectFrame = select.frame
-        let date = app.staticTexts.matching(NSPredicate(format: "identifier BEGINSWITH %@", "gallery.date.")).firstMatch
+        let firstDate = app.staticTexts.matching(NSPredicate(format: "identifier BEGINSWITH %@", "gallery.date.")).firstMatch
+        // A firstMatch query can resolve to a different header after scrolling.
+        let date = app.staticTexts[firstDate.identifier]
         XCTAssertTrue(date.isHittable)
         screenshot("gallery-before-scroll")
         let scroll = app.scrollViews["gallery.scroll"]
