@@ -2,6 +2,13 @@
 
 xszc 将 Android 和 iOS 上获准访问的照片、视频备份到自己的 xszs 服务端，并提供本地/云端图库、传输进度与原件下载。
 
+## 选择平台
+
+- [Android](platforms/android.md)：Android 8.0+ arm64，正式 APK、Debug 构建、签名与 ADB 排障
+- [iOS](platforms/ios.md)：iOS 26.0+，IPA 签名、Mac 构建、模拟器与 Keychain 排障
+
+Linux、Windows 和 macOS 是开发机选项；本产品仅提供 Android 和 iOS 应用。
+
 ## 安装和使用
 
 1. [安装应用](platform-setup.md)：Android APK、iOS 签名与覆盖更新
