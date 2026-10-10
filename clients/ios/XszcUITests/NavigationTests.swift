@@ -37,7 +37,14 @@ final class NavigationTests: XCTestCase {
         let seeked = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value BEGINSWITH %@", "00:06"), object: progress)
         XCTAssertEqual(XCTWaiter.wait(for: [seeked], timeout: 5), .completed)
         screenshot("video-fullscreen-paused")
-        // Leave enough playback time to exercise automatic control hiding.
+        // Keep the 1.5x selection/paused checks above separate from the
+        // auto-hide interaction. The 12s fixture ends after only 8s at 1.5x;
+        // XCTest can need longer to observe hiding, reveal, and tap pause.
+        // At 0.5x the same real clip gives this bounded interaction 24s.
+        app.buttons["video.speed"].tap()
+        app.buttons["0.5×"].tap()
+        XCTAssertEqual(app.buttons["video.speed"].value as? String, "0.5×")
+        XCTAssertEqual(play.label, "播放", "Changing speed must keep the video paused")
         progress.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5)).tap()
         let rewound = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value BEGINSWITH %@", "00:00"), object: progress)
         XCTAssertEqual(XCTWaiter.wait(for: [rewound], timeout: 5), .completed)
@@ -47,11 +54,14 @@ final class NavigationTests: XCTestCase {
         let hidden = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: play)
         XCTAssertEqual(XCTWaiter.wait(for: [hidden], timeout: 8), .completed)
         preview.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5)).tap()
+        XCTAssertTrue(play.waitForExistence(timeout: 5))
+        XCTAssertEqual(play.label, "暂停", "Revealing controls must not change playback")
         play.tap()
-        XCTAssertEqual(play.label, "播放")
+        let paused = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "播放"), object: play)
+        XCTAssertEqual(XCTWaiter.wait(for: [paused], timeout: 5), .completed)
         // Read advancement while paused, after the controls have been revealed.
         // The progress control intentionally disappears during automatic hiding.
-        // At 1.5x, XCTest's polling can skip a particular second. Require
+        // XCTest's polling can skip a particular second. Require
         // actual advancement instead of catching one transient timestamp.
         let advanced = XCTNSPredicateExpectation(predicate: NSPredicate(
             format: "exists == true AND NOT (value BEGINSWITH %@)", "00:00"), object: progress)

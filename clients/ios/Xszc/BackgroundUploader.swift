@@ -131,22 +131,13 @@ final class BackgroundUploader: NSObject, URLSessionTaskDelegate {
     }
 
     func syncAlbum(id: String, name: String, assetIds: Set<String>, replaceMembers: Bool) async throws {
-        let ordered = assetIds.sorted()
-        var start = 0
-        repeat {
-            let end = min(start + 10_000, ordered.count)
+        try await AlbumSyncBatch.send(id: id, name: name, assetIds: assetIds, replaceMembers: replaceMembers) { body in
             var request = authorized(path: "/v1/albums", method: "POST")
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = try JSONSerialization.data(withJSONObject: [
-                "source_album_id": id,
-                "name": name,
-                "source_asset_ids": Array(ordered[start..<end]),
-                "replace_members": replaceMembers && start == 0,
-            ])
+            request.httpBody = body
             let (_, response) = try await SecureSession.shared.data(for: request)
             try requireSuccess(response)
-            start = end
-        } while start < ordered.count
+        }
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {

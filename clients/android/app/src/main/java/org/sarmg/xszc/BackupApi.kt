@@ -89,19 +89,9 @@ class BackupApi(
         sourceAssetIds: Set<String>,
         replaceMembers: Boolean,
     ): JSONObject {
-        val chunks = sourceAssetIds.sorted().chunked(10_000).ifEmpty { listOf(emptyList()) }
-        var response: JSONObject? = null
-        for ((index, chunk) in chunks.withIndex()) {
-            val assets = org.json.JSONArray()
-            chunk.forEach(assets::put)
-            val body = JSONObject()
-                .put("source_album_id", sourceAlbumId)
-                .put("name", name)
-                .put("source_asset_ids", assets)
-                .put("replace_members", replaceMembers && index == 0)
-            response = jsonRequest("$serverUrl/v1/albums", "POST", body.toString())
+        return AlbumSyncBatch.send(sourceAlbumId, name, sourceAssetIds, replaceMembers) { body ->
+            jsonRequest("$serverUrl/v1/albums", "POST", body)
         }
-        return checkNotNull(response)
     }
 
     fun timeline(cursor: String? = null, trashed: Boolean = false, favorite: Boolean = false, albumId: String? = null, filters: CloudFilters = CloudFilters()): JSONObject {
