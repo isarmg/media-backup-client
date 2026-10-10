@@ -46,7 +46,19 @@ class GalleryNavigationInstrumentedTest {
 
     @Before fun seedGallery() {
         repeat(40) { photos += insertPhoto(it) }
-        compose.waitUntil(30_000) { runCatching { compose.onAllNodes(hasTestTagPrefix("gallery.photo.")).fetchSemanticsNodes().isNotEmpty() }.getOrDefault(false) }
+        var lastSemanticsFailure: Throwable? = null
+        try {
+            compose.waitUntil(30_000) {
+                runCatching { compose.onAllNodes(hasTestTagPrefix("gallery.photo.")).fetchSemanticsNodes().isNotEmpty() }
+                    .onFailure { lastSemanticsFailure = it }.getOrDefault(false)
+            }
+        } catch (failure: ComposeTimeoutException) {
+            // Keep the original failure and report the observation that the polling condition hid.
+            lastSemanticsFailure?.let { failure.addSuppressed(it) }
+            runCatching { compose.onAllNodes(isRoot(), useUnmergedTree = true).printToLog("XszcGallerySeedFailure") }
+                .onFailure { failure.addSuppressed(it) }
+            throw failure
+        }
         compose.waitUntil(30_000) { compose.onNodeWithTag("gallery.filter").isEnabled() }
     }
 
@@ -236,6 +248,16 @@ class GalleryNavigationInstrumentedTest {
         compose.waitUntil(10_000) {
             InstrumentationRegistry.getInstrumentation().uiAutomation.rootInActiveWindow?.packageName?.toString() == "com.android.settings"
         }
+        // Leave the external Settings activity before this test disposes its own activity.
+        assertTrue(InstrumentationRegistry.getInstrumentation().uiAutomation.performGlobalAction(
+            android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK))
+        compose.waitUntil(10_000) {
+            InstrumentationRegistry.getInstrumentation().uiAutomation.rootInActiveWindow?.packageName?.toString() == context.packageName &&
+                compose.activityRule.scenario.state == Lifecycle.State.RESUMED
+        }
+        compose.onNodeWithTag("settings.list").assertIsDisplayed()
+        compose.onNodeWithText("本地").performClick()
+        compose.onNodeWithTag("gallery.grid").assertIsDisplayed()
     }
 
     @Test fun mediaStoreChangesAutomaticallyRefreshGallery() {
