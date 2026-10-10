@@ -1,4 +1,6 @@
-# 第 6 章：Android 与 iOS 客户端
+# Android 与 iOS 宿主参考
+
+本页供实现平台扫描、后台调度和 FFI 时查阅。首次构建见[构建与测试](../development.md)。
 
 ## 共同状态机
 
@@ -67,7 +69,7 @@ ABI revision；业务配置仍严格验证当前 product/version/revision/state_
 Rust panic 经共享边界转成 255，panic 内容不写入宿主日志；`panic=abort` 构建会被拒绝。
 移动 `part_size` 限制为 1 字节至 64 MiB，单文件最多 4096 个分块；超限配置在创建数据库前拒绝，
 已知超限文件在创建分块目录前拒绝。分块缓冲区使用可失败的分配，避免配置触发无界分配。
-本机 C 动态库验收和 Rust 测试已通过，Android/iOS 原生运行验收必须另行执行，不能用静态门禁代替。
+验证时分别记录 C 动态库、Rust 测试及 Android/iOS 原生运行结果；静态合同检查用于提前发现接口漂移。
 
 ## UI 可观察状态
 

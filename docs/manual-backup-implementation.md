@@ -78,7 +78,7 @@ Git revision；服务端的安装和发布按独立服务端仓库文档执行�
 - Android：`gradle -p clients/android testDebugUnitTest assembleDebug`；系统集成验证使用 `scripts/test-android-emulator.sh`。
 - C/JNI：`scripts/test-mobile-ffi-c.sh`、`scripts/test-mobile-ffi-jni.sh`。
 - 移动契约与打包：`scripts/check-mobile-contract.sh`、`scripts/check-workflow-supply-chain.sh`、`python3 scripts/test-package-ios-ipa.py`。
-- iOS：按[配置指南](configuration.md)使用 Xcode 构建和运行单元/UI 测试；语法检查不能替代 Apple SDK 类型检查。
+- iOS：按[构建指南](development.md#ios)使用 Xcode 构建和运行单元/UI 测试；语法检查不能替代 Apple SDK 类型检查。
 
 核心回归覆盖：重复选择保留分块、进程重开恢复、共享批次取消、自动引用保留、
 私有副本删除后的重试、回执哈希拒绝、多资源未完成不误报、自动排除允许手动覆盖、

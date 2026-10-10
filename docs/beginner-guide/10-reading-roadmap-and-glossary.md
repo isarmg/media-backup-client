@@ -1,23 +1,23 @@
 # 第 10 章：源码路线、练习与术语表
 
-## 四周阅读路线
+## 按主题阅读
 
-### 第一周：契约与入口
+### 契约与入口
 
 读工作区 manifest、`xcsc-client.toml`、客户端 constants、SQLite 结构定义与协议 Git 固定提交。画出
 发行版本、持久状态身份、FFI ABI 和 HTTP API 四类版本边界，并解释它们为什么不能互换。
 
-### 第二周：上传与存储
+### 上传与存储
 
 读 `crypto::prepare_file`、`client-core::next_prepared`、代次回收和数据库测试。为准备、上传重试、
 完成清理逐个标出 `sync_all`、SQLite 提交和崩溃点。
 
-### 第三周：移动端
+### 移动端
 
 读 mobile-ffi、Android Worker、iOS Coordinator 与两端安全存储。画出系统终止后恢复路径，运行
-epoch gate，并证明旧命名空间不会被读取。
+epoch gate，并观察重开后如何恢复已有任务。
 
-### 第四周：发布与运维
+### 发布与运维
 
 读 Android/iOS 构建脚本、发布工作流、签名门禁与 IPA 打包器。验证 Debug 与 Release 的 ABI、
 签名材料隔离、版本一致性和制品命名；服务端的发行目录及 systemd 属于独立仓库。

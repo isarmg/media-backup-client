@@ -1,91 +1,8 @@
-# xszc 运维文档
+# 维护应用数据
 
-本文只描述 `1.1.0` 客户端：Rust 移动核心与 FFI、Android 应用和 iOS 应用。服务端、管理 Web、
-systemd、Caddy 和服务端数据目录不属于本仓库；服务端部署请使用
-[xszs](https://github.com/isarmg/xszs) 的 Release 文档。
+应用正常使用从[日常使用](usage.md)进入；登录、网络、权限和签名错误按[排查问题](troubleshooting.md)处理。本页用于判断队列和私有文件的用途。
 
-逐平台安装、配对/重配、后台任务启停和卸载见[分平台部署指南](platform-setup.md)。本文侧重队列数据、开发验收与发布。
-
-## 1. 当前边界与状态
-
-- Android 与 iOS 只连接 HTTPS 服务端根地址，移动 API 前缀为 `/v1`。
-- 每个移动实例使用管理员分配的长期授权码配对。授权码改变时旧设备 Token 失效，客户端保留同实例队列
-  身份并重新配对；服务端返回不同实例身份时失败关闭。
-- Rust 本地合同为 `xszc-mobile-v1`，数据库只接受当前数据库结构 revision 1，不执行旧队列迁移。
-- 授权码、设备 Token 与账户标识是客户端秘密；Android 存入应用私有配置，iOS 存入 Keychain。日志、
-  命令参数和诊断输出不得包含这些值。
-- 本地 SQLite、prepared parts 和系统照片库共同构成待传状态。不要手改数据库，也不要递归删除
-  `backup-staging-v1/` 来处理单个失败任务。
-
-## 2. 通用 Rust、合同与 FFI 验证
-
-从源码仓库根目录执行。第一条是正式发行检查：先检出本机已取得的精确 `v1.1.0` 标签并确保没有未提交或未跟踪内容；普通开发分支只运行后续的构建、合同和测试命令。
-
-```bash
-./scripts/verify-release-version.sh v1.1.0
-./scripts/check-mobile-contract.sh
-./scripts/check-workflow-supply-chain.sh
-cargo fmt --all -- --check
-cargo check --workspace --locked
-cargo clippy --workspace --all-targets --locked -- -D warnings
-cargo test --workspace --locked
-./scripts/test-mobile-ffi-c.sh
-```
-
-Rust 使用仓库固定的 1.99.0 工具链。`check-mobile-contract.sh` 核对 Rust/Kotlin/Swift、C 头文件、
-数据库 identity 与 API DTO，任何一端只改字段都不算完成。
-
-## 3. Android 构建与验收
-
-安装 Android SDK/NDK 与 JDK 后构建 Rust arm64 库及 Debug 应用：
-
-```powershell
-rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
-cargo install cargo-ndk --version 4.1.2 --locked
-./scripts/build-android-rust.ps1
-gradle -p clients/android testDebugUnitTest assembleDebug
-```
-
-Linux CI 还应执行 `./scripts/test-mobile-ffi-jni.sh`；具备模拟器时运行
-`./scripts/test-android-emulator.sh`，覆盖 JNI 入队、分块、完成、重开、授权码轮换和私有目录边界。
-
-Android 需要网络、通知、照片/视频读取以及数据同步前台服务权限。Android 13+ 分别请求图片和视频权限，
-Android 14+ 支持系统“仅选中的照片和视频”；未获完整权限时只能处理实际授权的媒体。自动备份由
-WorkManager 调度，系统省电、后台限制或撤销权限都可能推迟任务，不能仅凭 UI 已启用判断备份完成。
-
-正式 APK 只包含 `arm64-v8a`，签名材料只进入受保护的 GitHub Environment。普通 CI 的 Debug APK
-不得作为正式更新发布；签名证书、应用 ID 和唯一签名者必须由发布工作流校验。
-
-## 4. iOS 构建与验收
-
-iOS 当前最低部署目标为 26.0，使用 Xcode 26 / iOS 26 SDK：
-
-```bash
-./scripts/verify-ios-toolchain.sh
-rustup target add aarch64-apple-ios aarch64-apple-ios-sim
-./scripts/build-ios-rust.sh
-cd clients/ios
-xcodegen generate
-# 列出可用模拟器，选用已安装 iOS 26 运行时的实际 iPhone 设备 UUID。
-xcrun simctl list devices available
-# 将占位值替换为上一条输出中的实际 UUID，不使用通用的仅构建目标运行测试。
-simulator_udid="REPLACE_WITH_AVAILABLE_IOS26_SIMULATOR_UUID"
-xcodebuild -project Xszc.xcodeproj -scheme Xszc \
-  -sdk iphonesimulator -destination "platform=iOS Simulator,id=$simulator_udid" test
-```
-
-模拟器配对/Keychain 测试使用有效的本地签名，不需要 Apple Developer 证书；不要禁用签名，否则可能返回 `-34018` 并无法保存已完成的配对凭据。
-
-`./scripts/test-ios-system-directory.sh` 验证系统目录与 Rust 状态边界，
-`python3 scripts/test-package-ios-ipa.py` 验证 IPA 打包器。发布产物
-`xszc-ios-1.1.0-unsigned.ipa` 未签名；安装前必须用自己的 Apple 身份签名，打包本身不会授予
-设备安装权限。
-
-iOS 依赖 PhotoKit 的完整或有限照片权限，并用 BGProcessingTask/后台 URLSession 尝试继续传输。
-系统决定后台执行时机；用户关闭后台刷新、低电量或权限变化时，应在前台重新打开应用检查队列。
-授权码和 Bearer Token 保存在 Keychain，本地传输状态位于应用私有目录。
-
-## 5. 本地数据分类与清理边界
+## 本地数据
 
 | 数据 | 所有者与允许操作 | 删除影响 |
 | --- | --- | --- |
@@ -99,29 +16,13 @@ iOS 依赖 PhotoKit 的完整或有限照片权限，并用 BGProcessingTask/后
 任何清理前先记录 job ID、队列状态和对应路径，仅使用产品提供的单任务取消/回收入口。没有可证明的引用
 关系时保留数据；“清缓存重试”不是身份、队列或 prepared parts 的恢复方法。
 
-## 6. 配对、队列与故障定位
 
-1. 确认服务端根地址是无路径后缀的可信 HTTPS origin，并检查设备时间与证书链。
-2. 在服务端管理台确认实例仍存在且授权码未被轮换；轮换后在客户端输入新码重新配对。
-3. 检查 Android/iOS 的实际照片权限、可用空间、网络与后台执行限制。
-4. 查看队列状态，区分 `discovered`、`ready`、`uploading`、`retry_wait`、`failed` 和 `complete`。
-5. 暂时性网络错误按有界退避重试；永久协议、身份或本地文件错误需要保留 job ID 与日志后定位，不能
-   通过清空全部应用状态规避。
-6. 服务端返回的不同 account/device identity 会失败关闭；先核对实例与授权码，不要修改本地 SQLite。
 
-`retry_wait` 到期时，只要 `prepared_json` 仍在，Rust 核心就直接复用已经落盘的分块；只有尚未完成过
-准备的任务才重新读取源文件。准备中途失败可能留下一个未被数据库引用的代次目录，后续成功
-准备会在同一任务目录中回收旧代次。排障时仍应先保留 job ID、数据库行和目录证据，避免手工
-清空整个暂存区破坏其他待传任务。
+## 重试与恢复
 
-## 7. 发布检查
+到期的 `retry_wait` 任务若已有 `prepared_json`，会复用落盘分块。尚未准备完成的任务才重新读取源文件。准备中断留下的未引用代次，会在同任务后续准备成功时回收；排障时保留整个待传任务的证据。
 
-标签必须精确为 `v1.1.0` 并指向待发布提交。发布工作流分别构建 Android 正式 APK、iOS 未签名
-IPA 和 SHA256SUMS。版本和源码身份由精确标签及原生发布流水线核对。发布前要求普通 CI、Android 模拟器/JNI 门禁、iOS 测试和供应链策略全部通过。
-客户端 Release 不包含服务端二进制、Web 资产、服务端配置或部署脚本。
-
-安全事件中不要公开授权码、设备 Token、相册内容、数据库或私人路径。先停止自动任务、保全只读证据，
-再由服务端管理员轮换该实例授权码并在客户端重新配对。
+“清空浏览缓存”适合释放可重建的图库图片。应用数据、队列数据库和已准备分块保存未完成任务，手工清除会丢失进度。要停止某次备份，使用传输页的批次取消；暂时停用应用使用账户退出。
 
 ## 本地数据库操作中断
 
@@ -129,3 +30,10 @@ Rust 核心的连接锁若因操作 panic 中毒，后续读取、入队、上�
 
 
 软件发行号与持久合同分别校验：当前代码、Rust crate、Android/iOS 发行号为 1.1.0；移动 JSON 应用版本和数据库应用版本仍为 1.0.0，数据库 revision 1、移动 revision 1、epoch xszc-mobile-v1 与 ABI 1 保持不变。`verify-release-version.sh` 从源码独立读取状态和 ABI 值，软件发行号不再写入或比较数据库身份。新软件对归档旧 HEAD DDL 的真实数据库已验证队列、已上传部分、批次、绑定、目录和图库缓存原行保留。
+
+
+## 凭据和退役
+
+怀疑设备凭据泄露时，先退出以停止任务，再请管理员轮换该实例授权码，并在设备上重新登录。轮换后旧 Token 失效，同实例队列按身份核验后继续使用。
+
+卸载影响和远端授权处理见[安装指南](platform-setup.md)。正式发行与平台验收见[构建与测试](development.md#发布验证)。

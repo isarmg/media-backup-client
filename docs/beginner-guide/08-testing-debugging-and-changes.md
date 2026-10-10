@@ -1,66 +1,15 @@
-# 第 8 章：测试、调试与变更方法
+# 测试与调试
 
-## 测试层级
+构建命令和平台检查统一在[构建与测试](../development.md)。修改某个模块时先执行相邻测试，再按影响范围补充 C/JNI、Android 和 iOS 原生验收。
 
-- Rust 单元测试：纯 DTO、哈希、状态机、路径、限流。
-- Rust 集成测试：真实 SQLite、WAL、文件系统、FFI 与并发。
-- 契约静态门：Rust FFI 头文件、JNI、Swift 符号、版本/应用 ID。
-- Android：Kotlin 单元测试、Compose/Gradle 编译、APK 打包。
-- iOS：XcodeGen、状态代次隔离测试、模拟器编译。
-- 发行：版本一致性、供应链策略、签名 Android APK、未签名 iOS IPA 与校验和。
+## 定位一次失败
 
-## 本地质量门
+记录发生时间、任务 ID、upload ID 和 asset/resource ID，按照片权限、扫描、本地队列、HTTPS、授权、分块、完成回执和同步逐层检查。服务端返回请求 ID 时，将其与服务端日志关联。
 
-```bash
-./scripts/check-mobile-contract.sh
-./scripts/check-workflow-supply-chain.sh
-cargo fmt --all -- --check
-cargo check --workspace --locked
-cargo clippy --workspace --all-targets --locked -- -D warnings
-cargo test --workspace --locked
-```
+数据库问题使用隔离测试夹具重现，保持原队列和 prepared 分块供排查。应用没有 `doctor` CLI；用户可从传输状态与系统日志获得现象，详见[排查指南](../troubleshooting.md)。
 
-只跑目标测试适合迭代，不是最终验收。涉及登录 Argon2 的测试对 CPU 争用敏感；并发跑多个大工作区
-可能制造 timeout 假失败，应在资源正常时单独复现。
+## 选择回归场景
 
-FFI 需要额外执行真实 C 动态库与 host-JVM JNI 验收：
+对本次变更验证正常使用，以及相关的取消、重试、进程重开、权限变化和账户切换。状态变更同时核对持久记录和界面观察，FFI 变更核对生成头、结果释放及目标宿主。
 
-```bash
-./scripts/test-mobile-ffi-c.sh
-./scripts/test-mobile-ffi-jni.sh
-```
-
-Android 单元/模拟器与 iOS Simulator 验收分别由 Gradle 和 Xcode 工作流执行。本仓库没有管理 Web；
-Node、React、Vite 与 `clients/web` 命令属于服务端仓库。
-
-## 调试分层
-
-先记录时间、设备任务 ID、upload ID 和 asset/resource ID，再定位层次：扫描权限 -> 本地队列 -> DNS/TLS
--> auth -> create -> part -> complete -> sync -> restore。当前服务端统一 HTTP 运行时生成或校验
-`X-Request-ID`，在响应头、错误响应的 `request_id` 和 HTTP span 中关联该请求。可结合该 ID 查服务端
-日志；手机客户端未展示它的路径仍按任务和资源身份排查，不能假定每条本地日志都有请求 ID。
-
-## SQLite 调试
-
-客户端没有 `doctor` 命令。用测试测试夹具或应用诊断读取状态，不在应用私有数据库运行手工 DDL。
-分析拒绝路径时复制完整 SQLite 代次到隔离目录并保持原 mode/sidecar，确认错误是 identity、
-结构定义、integrity、foreign key、锁还是目录边界；服务端 `doctor` 只在服务端仓库运行。
-
-## 文件系统调试
-
-核对 mount、free bytes、inode、owner/mode、real path、链接和 open file。遇到 unknown 暂存区不按名称
-删除；先对应数据库 upload record 与哈希。
-
-## 安全变更检查表
-
-1. 外部输入是否有长度/数量/depth 上限？
-2. 秘密是否可能进入日志、panic 或 metrics label？
-3. 取消/timeout 后谁拥有工作？
-4. 崩溃在每个持久化的 point 后如何恢复？
-5. 第二实例或路径换绑能否绕过锁？
-6. 是否无意加入旧名称/旧结构定义兼容？
-
-## 提交与评审
-
-一个大问题一个提交：协议、存储、平台 UI、发行/运维分别可回滚。提交前查看 `git diff --check`、旧名
-称零残留、生成物未提交和文档链接。评审描述不只写“测试通过”，还列出失败语义和未覆盖平台。
+提交前运行 `git diff --check`，说明实际通过的检查与未执行的平台。详细设备场景见[验收参考](../manual-backup-implementation.md#设备验收)。
