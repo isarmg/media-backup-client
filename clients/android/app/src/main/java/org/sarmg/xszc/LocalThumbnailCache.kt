@@ -4,7 +4,6 @@ import android.content.ComponentCallbacks2
 import android.content.Context
 import android.content.res.Configuration
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
@@ -82,13 +81,9 @@ internal object LocalThumbnailCache {
                                     (frame.height * scale).toInt().coerceAtLeast(1), true).also { frame.recycle() }
                             } finally { retriever.release() }
                         } else {
-                            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                            context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
-                            var sample = 1
-                            while (bounds.outWidth / sample > size * 2 || bounds.outHeight / sample > size * 2) sample *= 2
-                            signal.throwIfCanceled()
-                            context.contentResolver.openInputStream(uri)?.use {
-                                BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample })
+                            MediaBitmapDecoder.decode(size * 2) {
+                                signal.throwIfCanceled()
+                                context.contentResolver.openInputStream(uri)
                             }
                         }
                     }.getOrNull()

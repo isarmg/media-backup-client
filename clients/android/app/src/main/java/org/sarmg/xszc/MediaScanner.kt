@@ -3,7 +3,6 @@ package org.sarmg.xszc
 import android.content.ContentUris
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.media.ThumbnailUtils
 import android.os.Build
 import android.provider.MediaStore
@@ -285,11 +284,7 @@ class MediaScanner(private val context: Context) {
         val bitmap = if (mediaKind == "video") {
             ThumbnailUtils.createVideoThumbnail(source.absolutePath, MediaStore.Video.Thumbnails.MINI_KIND)
         } else {
-            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            BitmapFactory.decodeFile(source.absolutePath, bounds)
-            var sample = 1
-            while (bounds.outWidth / sample > 1024 || bounds.outHeight / sample > 1024) sample *= 2
-            BitmapFactory.decodeFile(source.absolutePath, BitmapFactory.Options().apply { inSampleSize = sample })
+            MediaBitmapDecoder.decode(1024) { source.inputStream() }
         } ?: return null
         val scale = minOf(1f, 512f / maxOf(bitmap.width, bitmap.height).toFloat())
         var scaled = bitmap

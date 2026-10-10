@@ -2,7 +2,6 @@ package org.sarmg.xszc
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.util.LruCache
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Semaphore
@@ -64,12 +63,8 @@ internal object RemoteImageCache {
                 } finally { temporary.delete() }
             }
             file.setLastModified(System.currentTimeMillis())
-            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            BitmapFactory.decodeFile(file.path, bounds)
             val max = if (preview) 2048 else 512
-            var sample = 1
-            while (bounds.outWidth / sample > max || bounds.outHeight / sample > max) sample *= 2
-            val bitmap = BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = sample })
+            val bitmap = MediaBitmapDecoder.decode(max) { file.inputStream() }
             bitmap?.let { memory.put(key, it) }
             val files = root.listFiles()?.filter { it.extension != "part" }?.sortedBy { it.lastModified() }.orEmpty()
             var bytes = files.sumOf { it.length() }
