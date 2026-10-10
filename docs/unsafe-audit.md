@@ -42,3 +42,8 @@ SQLx 产品连接和事务封装没有 unsafe。Rust slice 复制可替代一般
 | 6–8、11–14：状态和副作用 | 固定schema/hash、NOFOLLOW VFS、真实SQLx事务与私有目录校验；实例/照片/task稳定身份、prepared parts和SQL状态协调。授权码轮换保留同实例队列，错实例拒绝；取消与完成分开；照片和prepared bytes有预算。 | 设备权限、PhotoKit/WorkManager后台调度由OS决定，UI启用不等于后台传输已完成。 |
 | 15–16：日志和界面 | 账户、Token、授权码不进入诊断；Android私有配置、iOS Keychain及UI区分照片权限、排队、传输和完成。 | Native UI、真机照片权限/后台以及实际安装与签名需最终平台执行证明。 |
 | 20–23：验证与发行 | 0.6.4 本机验证见上文，历史 0.6.3、0.6.2 证据独立保留。cargo-ndk4.1.2、Temurin官方SemVer17.0.20+101精确安装，实际runtime17.0.20.1+1和XcodeGen2.46.0在构建前验证。 | 模拟器不代替真机安装/照片后台行为。新版本 Release 须再次核验 Android 唯一签名者和 iOS 未签名标志。 |
+
+
+## 2026-10-10 xcsc 1.0.1 输入更新
+
+当前依赖已更新为官方 `xcsc =1.0.1`，固定 Git 修订 `d3e9b8db84e4ead70ec0bf8a596dbad697f7db24`，并同步产品能力清单和 `Cargo.lock`。上文关于 xcsc 1.0.0 的来源与验证描述保留为当时记录，不代表当前输入。新修订的客户端来源校验和 `cargo metadata --locked --all-features` 已通过；这两项不替代本产品最终源码的原生平台、实体设备或业务路径验收。

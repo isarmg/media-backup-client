@@ -29,6 +29,8 @@ jobs:
         run: python scripts/check-xcsc-source.py
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: ./scripts/check-mobile-contract.sh
+      - name: Verify gallery selection and preview source guards
+        run: python3 scripts/test-gallery-selection.py
       - run: python3 scripts/test-package-ios-ipa.py
       - run: ./scripts/check-workflow-supply-chain.sh
       - run: cargo fmt --all -- --check

@@ -116,7 +116,7 @@ internal fun CloudGalleryScreen(context: Context, config: SecureConfig, profile:
     var downloadNotice by remember(profile) { mutableStateOf("") }
     var pendingDownload by remember(profile) { mutableStateOf<List<RemoteAsset>?>(null) }
     val hasFilters = favorites || albumId != null || filters != CloudFilters()
-    val monthFormat = remember { SimpleDateFormat("yyyy年M月", Locale.getDefault()) }
+    val monthFormat = remember(Locale.getDefault(), ZoneId.systemDefault()) { SimpleDateFormat("yyyy年M月", Locale.getDefault()) }
     fun monthLabel(asset: RemoteAsset) = monthFormat.format(Date(asset.createdAtMs))
     fun resetSelection(end: Boolean = false) {
         selectionGeneration++; selectAllJob?.cancel(); selectingAll = false; selection = emptySet()
@@ -194,6 +194,7 @@ internal fun CloudGalleryScreen(context: Context, config: SecureConfig, profile:
         catch (_: Exception) { /* The gallery remains usable if metadata is temporarily offline. */ }
     }
     var foreground by remember { mutableStateOf(true) }
+    var refreshPending by remember(profile) { mutableStateOf(false) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle, source) {
         val observer = LifecycleEventObserver { _, event ->
@@ -205,11 +206,19 @@ internal fun CloudGalleryScreen(context: Context, config: SecureConfig, profile:
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer) }
     }
+    // Synchronization can finish after a preview/selection opens. Preserve the
+    // change until the gallery is idle instead of clearing an active pager.
+    LaunchedEffect(refreshPending, foreground, loading, selected, selecting) {
+        if (refreshPending && foreground && !loading && selected == null && !selecting) {
+            refreshPending = false
+            load(true)
+        }
+    }
     LaunchedEffect(source, profile) {
         while (true) {
             delay(30_000)
             if (foreground && !loading && selected == null && !selecting) {
-                try { if (source.synchronize()) load(true) }
+                try { if (source.synchronize()) refreshPending = true }
                 catch (error: CancellationException) { throw error }
                 catch (error: Exception) { notice = "图库缓存待同步：${error.message}" }
             }

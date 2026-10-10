@@ -226,6 +226,8 @@ struct LocalGalleryScreen: View {
     @State private var unbacked = false
     @State private var selected: [String: LocalMedia] = [:]
     @State private var selectionGeneration = 0
+    @State private var entryGeneration = 0
+    @State private var previewGeneration = 0
     @State private var preview: LocalMedia?
     @State private var videoPreview: LocalMedia?
     @State private var isSelecting = false
@@ -332,7 +334,7 @@ struct LocalGalleryScreen: View {
                 Task { await load(scan: changed) }
             }
         }
-        .onDisappear { details.stop() }
+        .onDisappear { entryGeneration += 1; selectionGeneration += 1; details.stop() }
         .onChange(of: album) { _, _ in filtersChanged(scan: true) }
         .onChange(of: kind) { _, _ in filtersChanged() }
         .onChange(of: unbacked) { _, _ in filtersChanged() }
@@ -355,8 +357,8 @@ struct LocalGalleryScreen: View {
             .statusBarHidden()
             .persistentSystemOverlays(.hidden)
         }
-        .fullScreenCover(item: $videoPreview) { row in
-            PhotoKitVideo(id: row.id, onClose: { videoPreview = nil },
+        .fullScreenCover(item: Binding(get: { videoPreview }, set: { setVideoPreview($0) })) { row in
+            PhotoKitVideo(id: row.id, onClose: { setVideoPreview(nil) },
                 backupSelected: selected[row.id] != nil, onBackup: { isSelecting = true; toggle(row) })
                 .statusBarHidden()
                 .persistentSystemOverlays(.hidden)
@@ -390,7 +392,12 @@ struct LocalGalleryScreen: View {
             }
         }.buttonStyle(.glass).controlSize(.regular)
     }
+    private func setVideoPreview(_ row: LocalMedia?) {
+        if row == nil { previewGeneration += 1 }
+        videoPreview = row
+    }
     private func setPreview(_ row: LocalMedia?) {
+        if row == nil { previewGeneration += 1 }
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) { preview = row }
@@ -462,18 +469,34 @@ struct LocalGalleryScreen: View {
     }
     private func openEntry(_ entry: LocalGalleryEntry, select: Bool? = nil) {
         let selecting = select ?? isSelecting
+        // Preview taps supersede one another; independent selection taps do not.
+        if !selecting { previewGeneration += 1 }
+        let previewRequest = previewGeneration
         let identity = coordinator.profile
+        let generation = entryGeneration
+        let query = LocalGalleryQuery(profile: identity, album: album, kind: kind, unbacked: unbacked)
         Task {
             do {
                 let row = try await details.resolve(entry, store: coordinator.store())
-                guard identity == coordinator.profile else { return }
+                guard generation == entryGeneration,
+                    query == LocalGalleryQuery(profile: coordinator.profile, album: album, kind: kind, unbacked: unbacked) else { return }
                 if selecting { isSelecting = true; toggle(row) }
-                else if row.kind == "video" { videoPreview = row }
-                else { setPreview(row) }
-            } catch { message = error.localizedDescription }
+                else {
+                    guard previewRequest == previewGeneration, !isSelecting else { return }
+                    if row.kind == "video" { setVideoPreview(row) }
+                    else { setPreview(row) }
+                }
+            } catch {
+                guard generation == entryGeneration,
+                    query == LocalGalleryQuery(profile: coordinator.profile, album: album, kind: kind, unbacked: unbacked),
+                    selecting || (previewRequest == previewGeneration && !isSelecting) else { return }
+                message = error.localizedDescription
+            }
         }
     }
     private func resetSelection() {
+        previewGeneration += 1
+        entryGeneration += 1
         selectionGeneration += 1
         selected = [:]
         isSelecting = false
@@ -486,6 +509,7 @@ struct LocalGalleryScreen: View {
         album = nil; kind = nil; unbacked = false
     }
     private func filtersChanged(scan: Bool = false) {
+        entryGeneration += 1
         selectionGeneration += 1
         Task { await load(scan: scan) }
     }
@@ -504,7 +528,7 @@ struct LocalGalleryScreen: View {
         }
         let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
         guard status == .authorized || status == .limited else {
-            directory = LocalGalleryDirectory(); details.stop(); selected = [:]; albums = []; loadedQuery = nil
+            directory = LocalGalleryDirectory(); details.stop(); resetSelection(); albums = []; loadedQuery = nil
             return
         }
         do {
@@ -566,7 +590,11 @@ struct LocalGalleryScreen: View {
             }.value
             guard isSelecting, generation == selectionGeneration, identity == coordinator.profile else { return }
             for row in chosen { selected[row.id] = row }
-        } catch { message = error.localizedDescription }
+        } catch {
+            if isSelecting, generation == selectionGeneration, identity == coordinator.profile {
+                message = error.localizedDescription
+            }
+        }
     }
 
 }

@@ -52,7 +52,7 @@ class CloudGalleryInstrumentedTest {
             return RemoteLibrary.Page(items, (offset + items.size).takeIf { it < all.size }?.toString())
         }
     }
-    private fun show(source: Pages, download: (List<RemoteAsset>) -> Unit = {}) {
+    private fun show(source: CloudGallerySource, download: (List<RemoteAsset>) -> Unit = {}) {
         context.getSharedPreferences("gallery_ui", Context.MODE_PRIVATE).edit().putInt("columns", 3).commit()
         val config = isolatedConfig(context)
         compose.setContent { AppTheme { Scaffold { padding -> Box(Modifier.fillMaxSize().padding(padding)) { CloudGalleryScreen(context, config, "cloud-test", source, download) } } } }
@@ -125,6 +125,43 @@ class CloudGalleryInstrumentedTest {
         compose.onNodeWithTag("cloud.select").performClick()
         compose.onNodeWithText("已选 0 项").assertIsDisplayed()
     }
+    @Test fun syncFinishingDuringPreviewDefersRefreshUntilPreviewCloses() {
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val finished = CompletableDeferred<Unit>()
+        val requests = AtomicInteger()
+        val source = object : CloudGallerySource {
+            // Empty resource fixtures never issue image/video network requests.
+            override val api = BackupApi("https://fixture.invalid", "fixture-token")
+            override suspend fun page(cursor: String?, trash: Boolean, favorite: Boolean,
+                album: String?, filters: CloudFilters): RemoteLibrary.Page {
+                requests.incrementAndGet()
+                return RemoteLibrary.Page(listOf(cloudFixture(0)), null)
+            }
+            override suspend fun synchronize(): Boolean {
+                entered.complete(Unit)
+                release.await()
+                finished.complete(Unit)
+                return true
+            }
+        }
+        show(source)
+        // Wait for the real 30-second idle-sync timer, then hold its result.
+        compose.waitUntil(40_000) { entered.isCompleted }
+        compose.onNodeWithTag("cloud.photo.fixture-0").performClick()
+        val preview = compose.onNodeWithContentDescription("照片预览，点按关闭，双指缩放")
+        preview.assertIsDisplayed()
+        val before = requests.get()
+        compose.runOnIdle { release.complete(Unit) }
+        compose.waitUntil(5_000) { finished.isCompleted }
+        compose.waitForIdle()
+        preview.assertIsDisplayed()
+        compose.runOnIdle { assertEquals(before, requests.get()) }
+        preview.performClick()
+        compose.waitUntil(5_000) { requests.get() > before }
+        compose.onNodeWithTag("cloud.photo.fixture-0").assertIsDisplayed()
+    }
+
     @Test fun queuedDownloadSurvivesLeavingCloudComposition() {
         val profile = "view-queue-${UUID.randomUUID()}"
         val workerScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)

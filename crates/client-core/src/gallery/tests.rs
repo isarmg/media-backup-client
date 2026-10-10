@@ -268,3 +268,76 @@ fn incremental_catalog_updates_reconcile_availability_and_retain_backup_exclusio
     .is_err());
     assert_eq!(directory(&c, None, None, false), index);
 }
+
+#[test]
+fn local_gallery_pages_filter_before_paging_and_keep_equal_date_ties_stable() {
+    let root = tempfile::tempdir().unwrap();
+    let c = open(&root.path().join("client.sqlite"));
+    call(&c, json!({"op":"begin_catalog"})).unwrap();
+    for start in (0..1003).step_by(200) {
+        let items: Vec<_> = (start..(start + 200).min(1003))
+            .rev()
+            .map(|index| {
+                let mut row = local_asset(index);
+                // Large same-time groups cross page boundaries. IDs break ties,
+                // independent of scanner insertion order on either platform.
+                row["created_ms"] = json!((index / 400) as i64 * 86_400_000);
+                row
+            })
+            .collect();
+        call(&c, json!({"op":"catalog","items":items})).unwrap();
+    }
+    call(&c, json!({"op":"finish_catalog"})).unwrap();
+    for album in [None, Some("a"), Some("b"), Some("missing")] {
+        for kind in [None, Some("photo"), Some("video")] {
+            for unbacked in [false, true] {
+                let full = directory(&c, album, kind, unbacked);
+                let mut indices: Vec<usize> = (0..1003)
+                    .filter(|index| {
+                        album.is_none_or(|album| album == if index % 2 == 0 { "a" } else { "b" })
+                            && kind.is_none_or(|kind| {
+                                kind == if index % 3 == 0 { "video" } else { "photo" }
+                            })
+                    })
+                    .collect();
+                indices.sort_by_key(|index| (std::cmp::Reverse(index / 400), *index));
+                let expected: Vec<_> = indices
+                    .iter()
+                    .map(|index| json!(format!("media-{index:06}")))
+                    .collect();
+                assert_eq!(
+                    full.as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|row| row["source_id"].clone())
+                        .collect::<Vec<_>>(),
+                    expected
+                );
+                let mut paged = Vec::new();
+                loop {
+                    let response = call(
+                        &c,
+                        json!({"op":"local_page", "album":album,
+                        "media_kind":kind, "unbacked":unbacked,
+                        "offset":paged.len(), "limit":151}),
+                    )
+                    .unwrap();
+                    let rows = response.as_array().unwrap();
+                    paged.extend(rows.iter().take(150).map(|row| row["source_id"].clone()));
+                    if rows.len() <= 150 {
+                        break;
+                    }
+                    assert!(paged.len() < expected.len());
+                }
+                assert_eq!(
+                    paged, expected,
+                    "album={album:?}, kind={kind:?}, unbacked={unbacked}"
+                );
+                let mut ids: Vec<_> = paged.iter().map(|id| id.as_str().unwrap()).collect();
+                ids.sort_unstable();
+                ids.dedup();
+                assert_eq!(ids.len(), paged.len());
+            }
+        }
+    }
+}
