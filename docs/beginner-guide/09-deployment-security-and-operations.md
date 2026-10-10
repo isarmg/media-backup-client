@@ -20,7 +20,7 @@ Rust XCFramework 的最低部署目标均为 iOS 26。Server 的 Linux 目标限
 
 ## 权限
 
-release root-owned read-only；服务账户 `ixcss-media` 不可登录，仅写状态和 runtime。环境文件 0600；
+release root-owned read-only；服务账户 `xszs` 不可登录，仅写状态和 runtime。环境文件 0600；
 数据库和媒体目录 0700/最小 umask。TLS 私钥由 proxy 账户保护，不授予应用读取。
 
 ## 上线检查

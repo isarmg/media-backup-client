@@ -31,7 +31,7 @@ Swift continuation 只能 resume 一次；后台 delegate、取消和进程恢�
 
 ## HTTP 约定
 
-JSON 请求设置正确 Content-Type，并受 body 上限。错误使用稳定 HTTP status 与 Foundation
+JSON 请求设置正确 Content-Type，并受 body 上限。错误使用稳定 HTTP status 与 xcsc
 `code/message/retryable`；当前 Server 不生成 request ID，客户端也不能依赖该可选字段。展示 message
 不用于程序分支。下载与分块上传是二进制流，不能先无界读入内存再检查大小。
 

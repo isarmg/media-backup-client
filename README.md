@@ -1,6 +1,6 @@
 # xszc
 
-xszc `1.1.0` 是 Media Backup 的 Android 与 iOS 应用。它读取用户授权的照片和视频，在本地维护上传队列，通过 HTTPS 备份到独立的 [xszs](https://github.com/isarmg/xszs)，并提供本地图库与云端图库。
+xszc `1.1.0` 是用于媒体备份的 Android 与 iOS 客户端。它读取用户授权的照片和视频，在本地维护上传队列，通过 HTTPS 备份到独立的 [xszs](https://github.com/isarmg/xszs)，并提供本地图库与云端图库。
 
 当前代码使用 Rust 1.99 和 SQLx 0.9。同步移动端 API、SQLite 当前结构及数据身份保持不变；正式状态以精确 Git 标签、Android/iOS 原生 CI 与 Release 资产为准。此前已公开版本的标签和原生资产保持封存。
 
@@ -56,3 +56,5 @@ gradle -p clients/android testDebugUnitTest assembleDebug
 本项目是真正的 Rust workspace：根 `Cargo.toml`/`Cargo.lock` 约束唯一依赖图，`crates/crypto` 负责分块内容处理，`crates/client-core` 负责当前本地数据库、图库和传输业务，`crates/mobile-ffi` 提供移动端 C/JNI 入口。原生 UI 位于 `clients/android` 和 `clients/ios`；静态数据库权威定义位于根 `schema/`，构建和发行脚本位于根 `scripts/`。各业务模块的大测试文件放在相应模块旁，原生平台验收按各平台目录责任组织，`docs/` 描述当前用户流程和发行边界。
 
 当前发布版本：**1.1.0**。参见 [1.1.0 发布说明](docs/releases/1.1.0.md)和[项目命名](docs/naming.md)。
+
+公共支撑的职责、单体依赖、平台边界与验证方法见[公共支撑说明](docs/common-support.md)。

@@ -2,7 +2,7 @@ format = 1
 product_id = "xszc"
 source_roots = ["crates/client-core","crates/mobile-ffi","crates/crypto","clients/android","clients/ios"]
 
-# Foundation generation and exact crate version; Cargo manifests pin the immutable source revision.
+# xcsc generation and exact crate version; Cargo manifests pin the immutable source revision.
 [foundation]
 platform_generation = 1
 version = "1.0.0"

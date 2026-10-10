@@ -155,7 +155,7 @@ impl Row {
 }
 impl Connection {
     pub(crate) fn connect(options: &SqliteConnectOptions) -> Result<Self> {
-        xcsc_runtime::block_on_worker_future(SqliteConnection::connect_with(options))
+        xcsc::runtime::block_on_worker_future(SqliteConnection::connect_with(options))
             .map(|inner| Self { inner: Some(inner) })
     }
     #[cfg(test)]
@@ -172,7 +172,7 @@ impl Connection {
             .expect("connection remains owned until drop")
     }
     pub(crate) fn execute_batch(&mut self, sql: impl SqlSafeStr) -> Result<()> {
-        xcsc_runtime::block_on_worker_future(sqlx::raw_sql(sql).execute(self.inner())).map(|_| ())
+        xcsc::runtime::block_on_worker_future(sqlx::raw_sql(sql).execute(self.inner())).map(|_| ())
     }
     pub(crate) fn execute(
         &mut self,
@@ -196,7 +196,7 @@ impl Connection {
         })
     }
     pub(crate) fn transaction(&mut self) -> Result<Transaction<'_>> {
-        xcsc_runtime::block_on_worker_future(self.inner().begin())
+        xcsc::runtime::block_on_worker_future(self.inner().begin())
             .map(|inner| Transaction { inner: Some(inner) })
     }
 }
@@ -204,7 +204,7 @@ impl Drop for Connection {
     fn drop(&mut self) {
         // Await worker shutdown before snapshot directories or native pins can drop.
         if let Some(inner) = self.inner.take() {
-            let _ = xcsc_runtime::block_on_worker_future(inner.close());
+            let _ = xcsc::runtime::block_on_worker_future(inner.close());
         }
     }
 }
@@ -237,13 +237,15 @@ impl Transaction<'_> {
         })
     }
     pub(crate) fn commit(mut self) -> Result<()> {
-        xcsc_runtime::block_on_worker_future(self.inner.take().expect("owned transaction").commit())
+        xcsc::runtime::block_on_worker_future(
+            self.inner.take().expect("owned transaction").commit(),
+        )
     }
 }
 impl Drop for Transaction<'_> {
     fn drop(&mut self) {
         if let Some(inner) = self.inner.take() {
-            let _ = xcsc_runtime::block_on_worker_future(inner.rollback());
+            let _ = xcsc::runtime::block_on_worker_future(inner.rollback());
         }
     }
 }
@@ -252,7 +254,7 @@ fn execute(
     sql: impl SqlSafeStr,
     parameters: impl Parameters,
 ) -> Result<u64> {
-    xcsc_runtime::block_on_worker_future(
+    xcsc::runtime::block_on_worker_future(
         sqlx::query_with(sql, parameters.arguments()?).execute(connection),
     )
     .map(|done| done.rows_affected())
@@ -263,7 +265,7 @@ fn query_row<T>(
     parameters: impl Parameters,
     map: impl FnOnce(&Row) -> Result<T>,
 ) -> Result<T> {
-    let row = xcsc_runtime::block_on_worker_future(
+    let row = xcsc::runtime::block_on_worker_future(
         sqlx::query_with(sql, parameters.arguments()?).fetch_one(connection),
     )?;
     map(&Row(row))
@@ -297,7 +299,7 @@ impl<T, F: FnMut(&Row) -> Result<T>> Iterator for MappedRows<'_, T, F> {
     type Item = Result<T>;
     fn next(&mut self) -> Option<Self::Item> {
         use futures_util::StreamExt;
-        xcsc_runtime::block_on_worker_future(self.stream.next())
+        xcsc::runtime::block_on_worker_future(self.stream.next())
             .map(|row| row.and_then(|row| (self.map)(&Row(row))))
     }
 }
@@ -321,7 +323,7 @@ pub(crate) struct Rows<'a> {
 impl Rows<'_> {
     pub(crate) fn next(&mut self) -> Result<Option<&Row>> {
         use futures_util::StreamExt;
-        self.current = xcsc_runtime::block_on_worker_future(self.stream.next())
+        self.current = xcsc::runtime::block_on_worker_future(self.stream.next())
             .transpose()?
             .map(Row);
         Ok(self.current.as_ref())

@@ -2,12 +2,12 @@
 
 ## 学习目标
 
-读完本章后，你应能说明 Media Backup 解决的问题、本仓库三个 Rust crate 与两个移动客户端的职责、媒体字节
+读完本章后，你应能说明 xszc 解决的问题、本仓库三个 Rust crate 与两个移动客户端的职责、媒体字节
 经过哪些边界，以及为什么当前版本拒绝任何旧名称和旧状态。
 
 ## 产品目标
 
-Media Backup 面向“把 Android/iOS 系统照片库中的原始照片和视频可靠保存到自己的服务器，并能在新
+xszc 面向“把 Android/iOS 系统照片库中的原始照片和视频可靠保存到自己的服务器，并能在新
 设备恢复”这一单一目标。核心成功标准不是页面数量，而是：扫描不越权、任务可续传、提交幂等、对象
 可校验、恢复拿到原始字节、故障可诊断。
 
@@ -49,7 +49,7 @@ Hash 等基础能力；`client-core` 定义移动任务库；`mobile-ffi` 只做
 
 Client 发行版本由根目录 `VERSION` 指定，当前为 `1.1.0`。持久状态与 wire 合同有独立兼容身份：产品
 `xszc`、应用版本 `1.0.0`、revision 1、移动 HTTP `/v1`、存储 `plain-v1`、epoch
-`xszc-mobile-v1`、本地 SQLite schema revision 1 和 Foundation ABI revision 1。发行号变化
+`xszc-mobile-v1`、本地 SQLite schema revision 1 和 xcsc ABI revision 1。发行号变化
 不会静默改写这些持久化身份；合同字段或本地 Schema 不匹配时失败关闭。
 
 项目不注册旧项目名、不识别旧应用 ID、不扫描旧 state directory，也不为旧 JSON 字段添加 alias。

@@ -4,7 +4,7 @@ object NativeBridgeV1 {
     init {
         System.loadLibrary("xszc_mobile")
         check(abiRevision() == EXPECTED_ABI_REVISION) {
-            "Media Backup native ABI mismatch"
+            "xszc native ABI mismatch"
         }
     }
 

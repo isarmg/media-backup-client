@@ -537,7 +537,7 @@ fn require_real_parent(path: &Path) -> anyhow::Result<()> {
         .parent()
         .context("client SQLite path must have a parent")?;
     #[cfg(unix)]
-    xcsc_fs_safety::validate_directory_path(parent)?;
+    xcsc::fs_safety::validate_directory_path(parent)?;
     #[cfg(not(unix))]
     {
         let mut current = PathBuf::new();

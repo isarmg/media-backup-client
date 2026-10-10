@@ -1,9 +1,9 @@
-# Media Backup 工作流程与流程树
+# xszc 工作流程与流程树
 
 ## 1. 总流程树
 
 ```text
-Media Backup
+xszc
 ├─ 开发
 │  ├─ 修改 Rust 移动核心、FFI 或 Android/iOS 宿主
 │  ├─ 协议变化在独立 Server 仓库完成后更新精确 Git revision
@@ -28,23 +28,23 @@ Media Backup
 [xszs](https://github.com/isarmg/xszs)，不能在本仓库执行：
 
 1. 启动脚本、systemd 和进程分别确认运行主机为 Linux x86_64。
-2. 确认命令是 `serve-release`，进程位于 manifest 声明的固定物理版本目录。
+2. 确认命令是 `xszs run --release-root RELEASE_ROOT`，进程位于 manifest 声明的固定物理版本目录。
 3. 校验源码 revision、`x86_64-unknown-linux-gnu` target、API、Schema、FFI、Web 与全树文件摘要和权限。
-4. 解析环境配置，使用 Foundation 规范化并验证 `BOOTSTRAP_ADMIN_USERNAME`，再验证生产 HTTPS、可信代理和路径组合。
+4. 解析环境配置，使用 xcsc 规范化并验证 `BOOTSTRAP_ADMIN_USERNAME`，再验证生产 HTTPS、可信代理和路径组合。
 5. 按稳定顺序取得数据库和 `DATA_DIR` 相邻的运行锁。
 6. 数据库不存在时排他创建当前 Schema；存在时在私有副本上验证元数据与现场指纹。
 7. 启动时先协调上传提交、无引用 blob 回收和 orphan commit staging，再启动每 120 秒一次、跳过错过 tick
    的周期协调任务；停机诊断可用 `reconcile scan` 走相同持锁路径。
-8. Foundation Runtime 统一监听、信号处理、健康/诊断和有界优雅关闭；上传协调作为 Degrading 任务注册。
+8. xcsc Runtime 统一监听、信号处理、健康/诊断和有界优雅关闭；上传协调作为 Degrading 任务注册。
    中断时的 SQLite/文件系统持久状态仍由下一次启动的产品协调逻辑处理。
 
 ## 3. 管理员与设备接入
 
 ```text
 首次启动环境中的 BOOTSTRAP_ADMIN_USERNAME + BOOTSTRAP_ADMIN_PASSWORD
-  -> xcss-admin-auth 对 username 执行 trim ASCII whitespace + ASCII lowercase
+  -> xcss::admin_auth 对 username 执行 trim ASCII whitespace + ASCII lowercase
   -> 要求 canonical 3..64 bytes、首尾字母数字、字符仅 [a-z0-9._-]，明确拒绝 @
-  -> Foundation Admin Core 在没有管理员时创建 _xcss_administrators 记录
+  -> xcsc Admin Core 在没有管理员时创建 _xcss_administrators 记录
   -> POST /api/v1/auth/login {username,password}
   -> 精确 AdministratorSession + HttpOnly Cookie
   -> GET /api/v1/auth/session 轮换 CSRF
@@ -53,7 +53,7 @@ Media Backup
   -> 设备 Token 安全存储
 ```
 
-浏览器、设备、API Key、指标 Token 是四条独立授权链。浏览器登录由 Foundation 根据真实 socket peer
+浏览器、设备、API Key、指标 Token 是四条独立授权链。浏览器登录由 xcsc 根据真实 socket peer
 和规范化账户实施准入，并以并发上限和超时保护 Argon2；代理来源解析只属于产品移动业务授权链。
 这里的 `_xcss_administrators.username` 只属于 Server 管理面；移动端使用设备实例授权码配对并取得
 设备 Token。设备/API Key 与管理员身份独立，不能互换凭据。
@@ -108,7 +108,7 @@ MediaStore/PhotoKit 写入系统照片库。当前 Android/iOS 宿主会检查 H
 干净 checkout + 精确 v1.1.0 tag
   -> 校验 tag、VERSION、Android versionName 与 iOS MARKETING_VERSION
   -> 运行 Rust、合同、供应链与移动平台测试
-  -> Android 从受保护 Environment 取得全新 PKCS#12，assembleRelease
+  -> Android 从受保护 Environment 取得规范 alias 的既有签名 PKCS#12，assembleRelease
   -> apksigner 唯一 signer/固定指纹 + aapt2 application ID + arm64-v8a ABI 复验
   -> 构建未签名 iOS IPA、校验和与身份清单
   -> GitHub Release（禁止覆盖既有资产）
@@ -118,18 +118,18 @@ Android 与 iOS 制品使用同一版本和移动 epoch；静态门禁发现的�
 各平台测试覆盖，不能把静态字符串门禁当成完整端到端证明。普通 CI 只构建 Debug/unsigned 移动制品，
 不得取得 Android 正式 Secret；当前签名身份不接受旧 package、旧证书或旧 Secret 名作为 fallback。
 
-## 10. Foundation Client 依赖流程
+## 10. xcsc 依赖流程
 
 ```text
-`xcsc-client.toml` 声明 Foundation platform generation 1、版本 0.9.18
-  -> `crates/mobile-ffi/Cargo.toml` 固定 `xcsc-mobile-ffi =0.9.18` 和完整 Git revision
+`xcsc-client.toml` 声明 xcsc platform generation 1、版本 1.0.0
+  -> `crates/mobile-ffi/Cargo.toml` 固定单个 `xcsc =1.0.0`、mobile-ffi feature 和完整 Git revision
   -> Cargo.lock 固定完整依赖图
   -> C/JNI 验收检查 ABI revision 1、长度边界、结果释放与 stale handle
   -> Android/iOS 宿主启动时再次核对 ABI revision
 ```
 
-当前依赖的是 Foundation Client 的 `xcsc-mobile-ffi =0.9.18`，Git revision 为
-`630bb16fe317c41c169cbfa7442cd06cce77257f`。仓库没有管理 Web、npm 工作区或 Server Foundation 依赖。
+当前公共依赖是单个 `xcsc =1.0.0` 包，通过 `xcsc::mobile_ffi` 内部模块消费移动 FFI；Android 另外启用同包的 `jni` feature。Git revision 为
+`00770c007912b276f5bb1075abfefe3c31026276`。仓库没有管理 Web、npm 工作区或 xcss 服务端运行库依赖。
 核心验证命令为：
 
 ```bash

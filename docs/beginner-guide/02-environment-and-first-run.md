@@ -14,24 +14,25 @@ cargo check --workspace --locked
 ```
 
 本仓库没有 Node 或管理 Web 构建。不要用 `cargo update` 或宽版本范围解决本机问题，它们会改变锁图或
-绕过固定的 Server protocol 与 Foundation Client revision。
+绕过固定的 Server protocol 与 xcsc revision。
 
 ## 服务端开发配置（独立仓库）
 
 以下配置和命令须在 [xszs](https://github.com/isarmg/xszs) checkout 中执行；
-本仓库没有 `config/`、Server binary 或管理 Web。Server 的 `config/xszc.env.example` 是字段说明，不应直接变成生产 Secret 文件。开发环境准备独立临时数据库和数据目录，
+本仓库没有 `config/`、Server binary 或管理 Web。Server 的 `config/xszs.env.example` 是字段说明，不应直接变成生产 Secret 文件。开发环境准备独立临时数据库和数据目录，
 设置规范化管理员 `BOOTSTRAP_ADMIN_USERNAME` 和强随机 `BOOTSTRAP_ADMIN_PASSWORD`。默认样例为 `admin`；服务不会读取
 `ADMIN_EMAIL`。username 候选经 ASCII trim/lowercase 后必须是 3–64 bytes、首尾字母数字且仅含
 `[a-z0-9._-]`。只有
 `DEVELOPMENT=true` 且 `BIND` 是 loopback 时才可关闭 HTTPS 强制。
 
 ```bash
-cargo run -p xszs -- serve
+cargo run -p xszs -- init
+cargo run -p xszs -- run
 curl --fail http://127.0.0.1:8080/healthz
 ```
 
-若 source-bound binary 报告拒绝 `serve`，说明你运行的是正式身份，不应绕过；改用普通开发构建或完整
-发行树的 `serve-release`。
+`init` 创建并验证当前私有状态；`run` 启动开发服务。若 source-bound binary 报告拒绝未指定发行根的
+`run`，说明你运行的是正式身份，应使用完整发行树及 `run --release-root RELEASE_ROOT`，不能绕过发行校验。
 
 ## 初始化后的第一条业务链
 

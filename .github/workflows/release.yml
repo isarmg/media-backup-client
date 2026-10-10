@@ -8,7 +8,7 @@ on:
 env:
   RELEASE_TAG: ${{ github.ref_name }}
   XSZC_ANDROID_APPLICATION_ID: org.sarmg.xszc
-  XSZC_ANDROID_SIGNING_KEY_ALIAS: media-backup-android-release
+  XSZC_ANDROID_SIGNING_KEY_ALIAS: xszc-android-release
   XSZC_ANDROID_SIGNING_CERT_SHA256: 0cfc2811d48cdeab3e6d857029d879e001ab9531c06784b4d48d15a847771421
 
 concurrency:
@@ -31,6 +31,8 @@ jobs:
         with:
           toolchain: 1.99.0
           components: rustfmt,clippy
+      - name: Verify locked client support boundary
+        run: python scripts/check-xcsc-source.py
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: ./scripts/verify-release-version.sh "$RELEASE_TAG"
       - run: ./scripts/check-mobile-contract.sh
@@ -58,6 +60,8 @@ jobs:
         with:
           toolchain: 1.99.0
           targets: aarch64-linux-android
+      - name: Verify locked client support boundary
+        run: python scripts/check-xcsc-source.py
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: release-android
@@ -89,8 +93,8 @@ jobs:
         run: gradle -p clients/android testDebugUnitTest
       - name: Materialize and validate the current signing identity
         env:
-          XSZC_ANDROID_SIGNING_PKCS12_BASE64: ${{ secrets.MEDIA_BACKUP_ANDROID_SIGNING_PKCS12_BASE64 }}
-          XSZC_ANDROID_SIGNING_PKCS12_PASSWORD: ${{ secrets.MEDIA_BACKUP_ANDROID_SIGNING_PKCS12_PASSWORD }}
+          XSZC_ANDROID_SIGNING_PKCS12_BASE64: ${{ secrets.XSZC_ANDROID_SIGNING_PKCS12_BASE64 }}
+          XSZC_ANDROID_SIGNING_PKCS12_PASSWORD: ${{ secrets.XSZC_ANDROID_SIGNING_PKCS12_PASSWORD }}
         run: |
           test -n "$XSZC_ANDROID_SIGNING_PKCS12_BASE64"
           test -n "$XSZC_ANDROID_SIGNING_PKCS12_PASSWORD"
@@ -109,7 +113,7 @@ jobs:
       - name: Build the signed release APK
         env:
           XSZC_ANDROID_SIGNING_PKCS12_PATH: ${{ runner.temp }}/xszc-android-release.p12
-          XSZC_ANDROID_SIGNING_PKCS12_PASSWORD: ${{ secrets.MEDIA_BACKUP_ANDROID_SIGNING_PKCS12_PASSWORD }}
+          XSZC_ANDROID_SIGNING_PKCS12_PASSWORD: ${{ secrets.XSZC_ANDROID_SIGNING_PKCS12_PASSWORD }}
         run: gradle -p clients/android assembleRelease
       - name: Verify and package the signed APK
         run: |
@@ -153,6 +157,8 @@ jobs:
         with:
           toolchain: 1.99.0
           targets: aarch64-apple-ios,aarch64-apple-ios-sim
+      - name: Verify locked client support boundary
+        run: python scripts/check-xcsc-source.py
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: release-ios26

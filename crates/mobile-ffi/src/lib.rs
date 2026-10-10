@@ -1,10 +1,10 @@
-//! Current product ABI: Foundation revision 1, length-delimited inputs and owned results.
+//! Current product ABI: xcsc revision 1, length-delimited inputs and owned results.
 use serde_json::{json, Value};
 use std::{
     path::{Component, Path},
     sync::{Arc, OnceLock},
 };
-use xcsc_mobile_ffi::{self as ffi, FfiError, Handle, HandleRegistry, Payload, XcscFfiResultV1};
+use xcsc::mobile_ffi::{self as ffi, FfiError, Handle, HandleRegistry, Payload, XcscFfiResultV1};
 use xszc_core::{
     Client, ClientConfig, EnqueueResource, MOBILE_APPLICATION_VERSION, MOBILE_DATABASE_FILENAME,
     MOBILE_PRODUCT, MOBILE_REVISION, MOBILE_STAGING_DIRECTORY, MOBILE_STATE_EPOCH,
@@ -88,7 +88,7 @@ pub unsafe extern "C" fn xszc_transfer_v1(
     output: *mut XcscFfiResultV1,
 ) -> i32 {
     // SAFETY: The caller supplies valid ABI buffers as documented above.
-    // Shared Foundation validates lengths and owns panic/result handling.
+    // Shared xcsc validates lengths and owns panic/result handling.
     unsafe {
         ffi::guard(output, || {
             json_payload(transfer_impl(
@@ -140,7 +140,7 @@ pub unsafe extern "C" fn xszc_open_v1(
     output: *mut XcscFfiResultV1,
 ) -> i32 {
     // SAFETY: The caller supplies valid ABI buffers as documented above.
-    // Shared Foundation validates lengths and owns panic/result handling.
+    // Shared xcsc validates lengths and owns panic/result handling.
     unsafe {
         ffi::guard(output, || {
             let path = ffi::checked_utf8(path, path_len, MAX_PATH_BYTES)?;
@@ -156,7 +156,7 @@ pub unsafe extern "C" fn xszc_open_v1(
 #[no_mangle]
 pub unsafe extern "C" fn xszc_close_v1(handle: u64, output: *mut XcscFfiResultV1) -> i32 {
     // SAFETY: The caller supplies valid ABI buffers as documented above.
-    // Shared Foundation validates lengths and owns panic/result handling.
+    // Shared xcsc validates lengths and owns panic/result handling.
     unsafe {
         ffi::guard(output, || {
             close_impl(handle)?;
@@ -179,7 +179,7 @@ pub unsafe extern "C" fn xszc_needs_v1(
     output: *mut XcscFfiResultV1,
 ) -> i32 {
     // SAFETY: The caller supplies valid ABI buffers as documented above.
-    // Shared Foundation validates lengths and owns panic/result handling.
+    // Shared xcsc validates lengths and owns panic/result handling.
     unsafe {
         ffi::guard(output, || {
             let asset = ffi::checked_utf8(asset, asset_len, MAX_IDENTIFIER_BYTES)?;
@@ -206,7 +206,7 @@ pub unsafe extern "C" fn xszc_verify_file_blake3_v1(
     output: *mut XcscFfiResultV1,
 ) -> i32 {
     // SAFETY: The caller supplies valid ABI buffers as documented above.
-    // Shared Foundation validates lengths and owns panic/result handling.
+    // Shared xcsc validates lengths and owns panic/result handling.
     unsafe {
         ffi::guard(output, || {
             let path = ffi::checked_utf8(path, path_len, MAX_PATH_BYTES)?;
@@ -228,7 +228,7 @@ pub unsafe extern "C" fn xszc_enqueue_v1(
     output: *mut XcscFfiResultV1,
 ) -> i32 {
     // SAFETY: The caller supplies valid ABI buffers as documented above.
-    // Shared Foundation validates lengths and owns panic/result handling.
+    // Shared xcsc validates lengths and owns panic/result handling.
     unsafe {
         ffi::guard(output, || {
             json_payload(enqueue_impl(
@@ -250,7 +250,7 @@ pub unsafe extern "C" fn xszc_next_v1(
     output: *mut XcscFfiResultV1,
 ) -> i32 {
     // SAFETY: The caller supplies valid ABI buffers as documented above.
-    // Shared Foundation validates lengths and owns panic/result handling.
+    // Shared xcsc validates lengths and owns panic/result handling.
     unsafe {
         ffi::guard(output, || {
             json_payload(next_impl(
@@ -274,7 +274,7 @@ pub unsafe extern "C" fn xszc_mark_upload_v1(
     output: *mut XcscFfiResultV1,
 ) -> i32 {
     // SAFETY: The caller supplies valid ABI buffers as documented above.
-    // Shared Foundation validates lengths and owns panic/result handling.
+    // Shared xcsc validates lengths and owns panic/result handling.
     unsafe {
         ffi::guard(output, || {
             let job = ffi::checked_utf8(job, job_len, MAX_IDENTIFIER_BYTES)?;
@@ -297,7 +297,7 @@ pub unsafe extern "C" fn xszc_mark_part_v1(
     output: *mut XcscFfiResultV1,
 ) -> i32 {
     // SAFETY: The caller supplies valid ABI buffers as documented above.
-    // Shared Foundation validates lengths and owns panic/result handling.
+    // Shared xcsc validates lengths and owns panic/result handling.
     unsafe {
         ffi::guard(output, || {
             let job = ffi::checked_utf8(job, job_len, MAX_IDENTIFIER_BYTES)?;
@@ -320,7 +320,7 @@ pub unsafe extern "C" fn xszc_mark_complete_v1(
     output: *mut XcscFfiResultV1,
 ) -> i32 {
     // SAFETY: The caller supplies valid ABI buffers as documented above.
-    // Shared Foundation validates lengths and owns panic/result handling.
+    // Shared xcsc validates lengths and owns panic/result handling.
     unsafe {
         ffi::guard(output, || {
             let job = ffi::checked_utf8(job, job_len, MAX_IDENTIFIER_BYTES)?;
@@ -344,7 +344,7 @@ pub unsafe extern "C" fn xszc_mark_failed_v1(
     output: *mut XcscFfiResultV1,
 ) -> i32 {
     // SAFETY: The caller supplies valid ABI buffers as documented above.
-    // Shared Foundation validates lengths and owns panic/result handling.
+    // Shared xcsc validates lengths and owns panic/result handling.
     unsafe {
         ffi::guard(output, || {
             if retryable > 1 {
@@ -367,7 +367,7 @@ pub unsafe extern "C" fn xszc_mark_failed_v1(
 #[no_mangle]
 pub unsafe extern "C" fn xszc_stats_v1(handle: u64, output: *mut XcscFfiResultV1) -> i32 {
     // SAFETY: The caller supplies valid ABI buffers as documented above.
-    // Shared Foundation validates lengths and owns panic/result handling.
+    // Shared xcsc validates lengths and owns panic/result handling.
     unsafe { ffi::guard(output, || json_payload(stats_impl(handle)?)) }
 }
 

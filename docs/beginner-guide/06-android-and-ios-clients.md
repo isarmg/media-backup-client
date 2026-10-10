@@ -58,11 +58,11 @@ size/BLAKE3；校验通过后才交给 PhotoKit `performChanges`。Android 在�
 
 ## FFI 规则
 
-当前 C ABI 为 Foundation revision 1：`xszc_*_v1` 接收显式指针/长度和 `XcscFfiResultV1` 输出，返回状态码。
+当前 C ABI 为 xcsc revision 1：`xszc_*_v1` 接收显式指针/长度和 `XcscFfiResultV1` 输出，返回状态码。
 生成 Header 只有 `xszc_ffi_v1.h`；结果中的字节和错误消息均有明确长度，必须通过
 `xcsc_ffi_result_free_v1` 释放整个结果，不能复制后重复释放。
 Swift 通过 XCFramework 的 `XszcRust` C module 导入 Header；
-Kotlin 使用 `NativeBridgeV1`，JNI 失败抛出 Foundation 映射的异常，不把默认值当成功。两个宿主都先验证
+Kotlin 使用 `NativeBridgeV1`，JNI 失败抛出 xcsc 映射的异常，不把默认值当成功。两个宿主都先验证
 ABI revision；业务配置仍严格验证当前 product/version/revision/state_epoch，ABI revision 不等于状态 epoch。
 Rust panic 经共享边界转成 255，panic 内容不写入宿主日志；`panic=abort` 构建会被拒绝。
 移动 `part_size` 限制为 1 字节至 64 MiB，单文件最多 4096 个分块；超限配置在创建数据库前拒绝，

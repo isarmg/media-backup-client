@@ -67,7 +67,7 @@ android {
                 create("release") {
                     storeFile = file(signingPath)
                     storePassword = signingPassword
-                    keyAlias = "media-backup-android-release"
+                    keyAlias = "xszc-android-release"
                     keyPassword = signingPassword
                     storeType = "PKCS12"
                 }

@@ -57,8 +57,9 @@ grep -q -F '0cfc2811d48cdeab3e6d857029d879e001ab9531c06784b4d48d15a847771421' \
     || fail "the formal Android release does not pin the current certificate fingerprint"
 grep -q -F 'assembleRelease' .github/workflows/release.yml \
     || fail "the formal Android release is not a signed release APK build"
-if grep -q -E 'assembleDebug|app-debug[.]apk|PHOTO_ANDROID_' .github/workflows/release.yml; then
-    fail "the formal release workflow still contains a debug or old Android signing path"
+python3 scripts/check-signing-secret-references.py .github/workflows/release.yml
+if grep -q -E 'assembleDebug|app-debug[.]apk' .github/workflows/release.yml; then
+    fail "the formal release workflow still contains a debug Android signing path"
 fi
 
 for workflow in .github/workflows/build.yml .github/workflows/release.yml; do

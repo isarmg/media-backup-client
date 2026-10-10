@@ -15,7 +15,7 @@ use database::connection::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
-use xcsc_fs_safety::{
+use xcsc::fs_safety::{
     bounded_directory_inventory, sync_directory, sync_file_and_parent, InventoryLimits,
     PrivateDirectory, RelativePath,
 };
@@ -43,7 +43,7 @@ pub enum ClientError {
     #[error("invalid current mobile contract: {0}")]
     InvalidContract(String),
     #[error("unsafe staging state: {0}")]
-    Staging(#[from] xcsc_fs_safety::Error),
+    Staging(#[from] xcsc::fs_safety::Error),
 }
 
 impl ClientError {

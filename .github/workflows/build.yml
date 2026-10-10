@@ -25,6 +25,8 @@ jobs:
         with:
           toolchain: 1.99.0
           components: rustfmt,clippy
+      - name: Verify locked client support boundary
+        run: python scripts/check-xcsc-source.py
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: ./scripts/check-mobile-contract.sh
       - run: python3 scripts/test-package-ios-ipa.py
@@ -49,6 +51,8 @@ jobs:
         with:
           toolchain: 1.99.0
           targets: aarch64-linux-android,x86_64-linux-android
+      - name: Verify locked client support boundary
+        run: python scripts/check-xcsc-source.py
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: android
@@ -117,6 +121,8 @@ jobs:
         with:
           toolchain: 1.99.0
           targets: aarch64-apple-ios,aarch64-apple-ios-sim
+      - name: Verify locked client support boundary
+        run: python scripts/check-xcsc-source.py
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: ios26

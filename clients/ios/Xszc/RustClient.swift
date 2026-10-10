@@ -9,12 +9,12 @@ private func nativeCall(_ operation: (UnsafeMutablePointer<XcscFfiResultV1>) -> 
     var result = XcscFfiResultV1()
     let status = operation(&result)
     guard result.abi_revision == UInt32(XCSC_FFI_ABI_REVISION) else {
-        throw ClientFailure.message("Media Backup native result ABI mismatch")
+        throw ClientFailure.message("xszc native result ABI mismatch")
     }
     defer { _ = xcsc_ffi_result_free_v1(&result) }
     guard status == result.status, result.bytes.length <= Int(XCSC_FFI_MAX_OUTPUT_BYTES),
           result.bytes.data != nil || result.bytes.length == 0 else {
-        throw ClientFailure.message("Media Backup native result is invalid")
+        throw ClientFailure.message("xszc native result is invalid")
     }
     let data = result.bytes.data.map { Data(bytes: $0, count: result.bytes.length) } ?? Data()
     guard status == Int32(XCSC_FFI_OK) else {
@@ -146,7 +146,7 @@ final class RustClient: @unchecked Sendable {
 
     init(databasePath: String) throws {
         guard xszc_ffi_abi_revision() == UInt32(XCSC_FFI_ABI_REVISION) else {
-            throw ClientFailure.message("Media Backup native ABI mismatch")
+            throw ClientFailure.message("xszc native ABI mismatch")
         }
         let config: [String: Any] = [
             "product": MobileContractV1.product,

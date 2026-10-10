@@ -2,7 +2,7 @@
 
 本仓库仅构建 Android/iOS、Rust Client 核心、媒体校验库和移动 FFI。Server、管理 Web、设备与管理员认证服务，
 以及唯一产品协议源码位于 https://github.com/isarmg/xszs 。Client 的 Cargo 依赖固定完整协议提交，
-无需相邻 Server 或 Foundation 仓库。
+无需相邻 Server 或 xcsc 仓库。
 
 独立 Client 发行版为 1.1.0（事实源为根目录 `VERSION`），移动状态契约版本仍为 1.0.0，移动状态 epoch 为 `xszc-mobile-v1`，移动 C/JNI 调用仍使用明确的 ABI v1。
 目录、队列数据库、后台工作标识属于新的当前状态，不兼容或迁移旧数据。Server 支持矩阵不等于移动状态恢复支持。

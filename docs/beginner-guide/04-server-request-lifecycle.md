@@ -15,7 +15,7 @@ limit、路由匹配、身份提取、CSRF/权限、DTO 反序列化，最后进
 
 路由显式选择一种身份，不能“依次尝试”多种 Token。这样避免低权限凭据意外落入高权限解析路径。
 
-管理员不是通用 RBAC 用户。Foundation `_xcss_administrators` 表保存 canonical `username`，不保存 email 或恒等角色，
+管理员不是通用 RBAC 用户。xcsc `_xcss_administrators` 表保存 canonical `username`，不保存 email 或恒等角色，
 配置入口只有 `BOOTSTRAP_ADMIN_USERNAME`；wire Session 的 `role` 由服务端固定输出 `admin`。operator/viewer、
 角色切换和 `ADMIN_EMAIL` 都不存在。浏览器登录、恢复会话、退出分别固定为
 `POST /api/v1/auth/login`、`GET /api/v1/auth/session`、`POST /api/v1/auth/logout`，管理 handler 固定在
@@ -23,12 +23,12 @@ limit、路由匹配、身份提取、CSRF/权限、DTO 反序列化，最后进
 
 ## 登录 admission
 
-管理员 body 在 Argon2 之前限为 16 KiB。Foundation 对真实 socket 来源与规范化账户实施固定失败预算；
+管理员 body 在 Argon2 之前限为 16 KiB。xcsc 对真实 socket 来源与规范化账户实施固定失败预算；
 未知/停用账户执行 dummy verification，Argon2 并发为 2、等待最多 2 秒。错误不暴露账户存在性。
 
 canonical username（3–64 bytes、首尾字母数字、字符 `[a-z0-9._-]`）、唯一当前 Argon2id 参数、随机
 Session/CSRF token、SHA-256 摘要/常量时间匹配和 raw
-Cookie 解析、登录准入、数据库 Store、Cookie 属性、TTL 和撤销全部来自 Foundation 当前 Admin 平台。
+Cookie 解析、登录准入、数据库 Store、Cookie 属性、TTL 和撤销全部来自 xcsc 当前 Admin 平台。
 产品只挂接管理员身份来保护备份租户和实例管理；移动端只允许待配对实例的授权码 bootstrap。
 
 ## 上传路由
@@ -53,7 +53,7 @@ unlink 与 blob-row 删除在同一 SQLite 事务中收口，失败回滚并由�
 
 ## 响应与日志
 
-成功 JSON 使用当前 DTO；`AppError` 统一映射为顶层 Foundation `code/message/retryable` ErrorEnvelope；
+成功 JSON 使用当前 DTO；`AppError` 统一映射为顶层 xcsc `code/message/retryable` ErrorEnvelope；
 当前实现不生成 request ID，因此不伪造该可选字段。TraceLayer 记录 HTTP span，关键认证、提交协调和
 存储错误另写结构化事件；不得假定每条日志都有统一操作 ID 或耗时字段。日志不应包含密码、Token、
 媒体字节或任意客户端路径。metrics 只输出固定聚合 gauge，不使用 username 等高基数标签。

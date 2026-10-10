@@ -1,4 +1,4 @@
-# Media Backup 文档总览
+# xszc 文档总览
 
 本文档集描述仓库当前 `1.1.0` 代码。代码、Schema、发行 manifest 与自动化测试是最终事实源；文档与
 实现不一致时，应先确认当前代码，再在同一变更中修正文档和测试。
@@ -19,6 +19,7 @@
 
 - [手动备份与分页云端图库实施记录](manual-backup-implementation.md)
 - [1.1.0 本地图库与全屏视频更新](releases/1.1.0.md)
-- [1.0.0 发行说明与验证边界](releases/1.0.0.md)
 
 - [依赖与 unsafe 审查](unsafe-audit.md)
+
+公共支撑的职责、单体依赖、平台边界与验证方法见[公共支撑说明](common-support.md)。
