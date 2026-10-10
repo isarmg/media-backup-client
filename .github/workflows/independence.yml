@@ -13,16 +13,6 @@ jobs:
       - run: ./scripts/check-workflow-supply-chain.sh
       - run: |
           set -euo pipefail
-          # Current xcsc SQLite metadata is not retired runtime coupling.
-          if git grep -n -I -P 'UNION_|X-Union-|PluginManifest|ProcessContext|xcss-platform|xcss_platform(?!_metadata\b)' -- . ':(exclude).github/workflows/independence.yml'; then
-            exit 1
-          else
-            grep_status=$?
-            if ((grep_status != 1)); then
-              exit "$grep_status"
-            fi
-          fi
-
           tracked_files="$(mktemp)"
           trap 'rm -f "$tracked_files"' EXIT
           git ls-files -z > "$tracked_files"

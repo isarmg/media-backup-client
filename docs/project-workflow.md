@@ -29,22 +29,22 @@ xszc
 
 1. 启动脚本、systemd 和进程分别确认运行主机为 Linux x86_64。
 2. 确认命令是 `xszs run --release-root RELEASE_ROOT`，进程位于 manifest 声明的固定物理版本目录。
-3. 校验源码 revision、`x86_64-unknown-linux-gnu` target、API、Schema、FFI、Web 与全树文件摘要和权限。
-4. 解析环境配置，使用 xcsc 规范化并验证 `BOOTSTRAP_ADMIN_USERNAME`，再验证生产 HTTPS、可信代理和路径组合。
+3. 校验源码 revision、`x86_64-unknown-linux-gnu` target、API、结构定义、FFI、Web 与全树文件摘要和权限。
+4. 解析环境配置，规范化并验证 `BOOTSTRAP_ADMIN_USERNAME`，再验证生产 HTTPS、可信代理和路径组合。
 5. 按稳定顺序取得数据库和 `DATA_DIR` 相邻的运行锁。
-6. 数据库不存在时排他创建当前 Schema；存在时在私有副本上验证元数据与现场指纹。
-7. 启动时先协调上传提交、无引用 blob 回收和 orphan commit staging，再启动每 120 秒一次、跳过错过 tick
+6. 数据库不存在时排他创建当前结构定义；存在时在私有副本上验证元数据与现场指纹。
+7. 启动时先协调上传提交、无引用 blob 回收和 orphan commit 暂存区，再启动每 120 秒一次、跳过错过 tick
    的周期协调任务；停机诊断可用 `reconcile scan` 走相同持锁路径。
-8. xcsc Runtime 统一监听、信号处理、健康/诊断和有界优雅关闭；上传协调作为 Degrading 任务注册。
+8. 服务端统一监听、信号处理、健康/诊断和有界优雅关闭；上传协调作为 Degrading 任务注册。
    中断时的 SQLite/文件系统持久状态仍由下一次启动的产品协调逻辑处理。
 
 ## 3. 管理员与设备接入
 
 ```text
 首次启动环境中的 BOOTSTRAP_ADMIN_USERNAME + BOOTSTRAP_ADMIN_PASSWORD
-  -> xcss::admin_auth 对 username 执行 trim ASCII whitespace + ASCII lowercase
+  -> 管理员认证对 username 执行 trim ASCII whitespace + ASCII lowercase
   -> 要求 canonical 3..64 bytes、首尾字母数字、字符仅 [a-z0-9._-]，明确拒绝 @
-  -> xcsc Admin Core 在没有管理员时创建 _xcss_administrators 记录
+  -> 服务端在没有管理员时创建管理员记录
   -> POST /api/v1/auth/login {username,password}
   -> 精确 AdministratorSession + HttpOnly Cookie
   -> GET /api/v1/auth/session 轮换 CSRF
@@ -53,21 +53,21 @@ xszc
   -> 设备 Token 安全存储
 ```
 
-浏览器、设备、API Key、指标 Token 是四条独立授权链。浏览器登录由 xcsc 根据真实 socket peer
+浏览器、设备、API Key、指标 Token 是四条独立授权链。浏览器登录由服务端根据真实套接字对端
 和规范化账户实施准入，并以并发上限和超时保护 Argon2；代理来源解析只属于产品移动业务授权链。
-这里的 `_xcss_administrators.username` 只属于 Server 管理面；移动端使用设备实例授权码配对并取得
+这里的管理员 username 只属于服务端管理面；移动端使用设备实例授权码配对并取得
 设备 Token。设备/API Key 与管理员身份独立，不能互换凭据。
 
 ## 4. 扫描与入队
 
-Android 通过 MediaStore、iOS 通过 PhotoKit 读取用户授权范围。扫描结果经过相册选择/排除规则；两端
-自动扫描均固定使用 `replace_members=false` 增量同步，部分授权或分批扫描不会移除未看到的远端成员。
+Android 通过 MediaStore、iOS 通过 PhotoKit 读取用户授权范围。扫描结果经过相册选择/排除规则。
+Android 只在扫描未截断、非“仅相机目录”、照片和视频均启用且完整授权时请求替换；iOS 在完整授权时请求替换。其他情况使用 `replace_members=false` 追加同步。两端每个请求最多发送 10,000 个成员，替换标志只用于首批，后续批次追加。
 原始媒体和缩略图形成资源
-描述后，任务先写入 `client-v1.sqlite`，staging 使用 `backup-staging-v1`，然后才交给系统后台调度。
+描述后，任务先写入 `client-v1.sqlite`，暂存区使用 `backup-staging-v1`，然后才交给系统后台调度。
 
 这里的“持久队列”不是无条件恢复保证。`ready` 与带 `prepared_json` 的到期 `retry_wait` 会直接复用
-已落盘分块；只有没有准备结果的任务才重新读取源文件。准备使用每次唯一的 generation 目录，成功将
-新结果持久化后回收同一 job 的旧 generation；若准备在持久化前失败，本轮未引用目录要等后续成功准备
+已落盘分块；只有没有准备结果的任务才重新读取源文件。准备使用每次唯一的代次目录，成功将
+新结果持久化后回收同一任务的旧代次；若准备在持久化前失败，本轮未引用目录要等后续成功准备
 才能回收。排障时应定位并保全单个 job 证据，不能删除整个 `backup-staging-v1/`。
 
 ## 5. 分块上传与提交
@@ -84,15 +84,15 @@ Android 通过 MediaStore、iOS 通过 PhotoKit 读取用户授权范围。扫�
 ```
 
 同一资源重复提交必须返回同一逻辑结果；账户内相同内容可复用对象，但资源归属与权限仍按账户隔离。
-临时文件和最终路径都经过 rooted filesystem 校验，禁止路径逃逸、符号链接和特殊文件。
+临时文件和最终路径都经过目录锚定文件系统校验，禁止路径逃逸、符号链接和特殊文件。
 
 ## 6. 图库与增量同步
 
 所有会影响移动视图的变更取得单调 sequence。客户端保存上次游标并请求 `/v1/sync?after=...`；完整
-时间线使用不透明分页 cursor，不能解析或自行构造。收藏、归档、标签、相册关系、回收站和重复组都
-写入同一当前 Schema。永久删除先验证资产处于回收站，在一个事务中删除 asset/resource 并写 change/audit；
-最后一个引用消失后，blob 行继续作为 durable 物理回收意图。协调器在 SQLite 删除事务仍打开时执行
-rooted unlink：成功后提交删行，失败则回滚并保留行。请求即时收口返回 204，仍待重试返回 202；启动、
+时间线使用不透明分页游标，不能解析或自行构造。收藏、归档、标签、相册关系、回收站和重复组都
+写入同一当前结构定义。永久删除先验证资产处于回收站，在一个事务中删除 asset/resource 并写 change/audit；
+最后一个引用消失后，blob 行继续作为持久化的物理回收意图。协调器在 SQLite 删除事务仍打开时执行
+目录锚定的 unlink：成功后提交删行，失败则回滚并保留行。请求即时收口返回 204，仍待重试返回 202；启动、
 每 120 秒周期和手工 `reconcile scan` 都会继续处理，不会因用户可见删除已经提交而返回可诱导盲重放的 500。
 
 ## 7. 恢复流程
@@ -116,7 +116,7 @@ MediaStore/PhotoKit 写入系统照片库。当前 Android/iOS 宿主会检查 H
 
 Android 与 iOS 制品使用同一版本和移动 epoch；静态门禁发现的身份/ABI 漂移会阻止发行，运行行为仍需
 各平台测试覆盖，不能把静态字符串门禁当成完整端到端证明。普通 CI 只构建 Debug/unsigned 移动制品，
-不得取得 Android 正式 Secret；当前签名身份不接受旧 package、旧证书或旧 Secret 名作为 fallback。
+不得取得 Android 正式秘密；当前签名身份不接受旧包、旧证书或旧秘密名作为回退。
 
 ## 10. xcsc 依赖流程
 
@@ -128,8 +128,8 @@ Android 与 iOS 制品使用同一版本和移动 epoch；静态门禁发现的�
   -> Android/iOS 宿主启动时再次核对 ABI revision
 ```
 
-当前公共依赖是单个 `xcsc =1.0.0` 包，通过 `xcsc::mobile_ffi` 内部模块消费移动 FFI；Android 另外启用同包的 `jni` feature。Git revision 为
-`00770c007912b276f5bb1075abfefe3c31026276`。仓库没有管理 Web、npm 工作区或 xcss 服务端运行库依赖。
+当前公共依赖是单个 `xcsc =1.0.0` 包，通过 `xcsc::mobile_ffi` 内部模块消费移动 FFI；Android 另外启用同包的 `jni` 功能开关。Git revision 为
+`c45e48e93e360542c2e1db6c6441a9e29b344b03`。仓库负责 Android/iOS 宿主、移动核心和原生桥接，不包含管理 Web 或 npm 工作区。
 核心验证命令为：
 
 ```bash

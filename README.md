@@ -8,9 +8,9 @@ xszc `1.1.0` 是用于媒体备份的 Android 与 iOS 客户端。它读取用�
 
 ## 配置概览
 
-先由 Server 管理员创建备份实例并复制实例授权码。移动端只填写：
+先由服务端管理员创建备份实例并复制实例授权码。移动端只填写：
 
-- Server 的 HTTPS 根地址，例如 `https://backup.example.com`，不要附加 `/admin` 或 `/v1`；
+- 服务端的 HTTPS 根地址，例如 `https://backup.example.com`，不要附加 `/admin` 或 `/v1`；
 - 实例授权码；
 - 自动备份、网络、电源、媒体类型/相册和本地缓存策略。
 
@@ -21,7 +21,7 @@ adb install -r clients/android/app/build/outputs/apk/debug/app-debug.apk
 adb shell am start -n org.sarmg.xszc/.MainActivity
 ```
 
-Server 存活检查应返回 HTTP `204`：
+服务端存活检查应返回 HTTP `204`：
 
 ```sh
 curl -fsS -o /dev/null -w '%{http_code}\n' https://backup.example.com/healthz
@@ -45,7 +45,7 @@ gradle -p clients/android testDebugUnitTest assembleDebug
 - [文档总览](docs/README.md)
 - [分平台部署、重新配对、启停与卸载](docs/platform-setup.md)
 - [完整配置指南](docs/configuration.md)
-- [Client 运维与发布](docs/operations.md)
+- [客户端运维与发布](docs/operations.md)
 - [初学者指南](docs/beginner-guide/README.md)
 - [项目工作流程](docs/project-workflow.md)
 
@@ -53,8 +53,8 @@ gradle -p clients/android testDebugUnitTest assembleDebug
 
 ## 仓库布局
 
-本项目是真正的 Rust workspace：根 `Cargo.toml`/`Cargo.lock` 约束唯一依赖图，`crates/crypto` 负责分块内容处理，`crates/client-core` 负责当前本地数据库、图库和传输业务，`crates/mobile-ffi` 提供移动端 C/JNI 入口。原生 UI 位于 `clients/android` 和 `clients/ios`；静态数据库权威定义位于根 `schema/`，构建和发行脚本位于根 `scripts/`。各业务模块的大测试文件放在相应模块旁，原生平台验收按各平台目录责任组织，`docs/` 描述当前用户流程和发行边界。
+本项目是真正的 Rust 工作区：根 `Cargo.toml`/`Cargo.lock` 约束唯一依赖图，`crates/crypto` 负责分块内容处理，`crates/client-core` 负责当前本地数据库、图库和传输业务，`crates/mobile-ffi` 提供移动端 C/JNI 入口。原生 UI 位于 `clients/android` 和 `clients/ios`；静态数据库权威定义位于根 `schema/`，构建和发行脚本位于根 `scripts/`。各业务模块的大测试文件放在相应模块旁，原生平台验收按各平台目录责任组织，`docs/` 描述当前用户流程和发行边界。
 
-当前发布版本：**1.1.0**。参见 [1.1.0 发布说明](docs/releases/1.1.0.md)和[项目命名](docs/naming.md)。
+当前发布版本：**1.1.0**。参见 [1.1.0 发布说明](docs/releases/1.1.0.md)。
 
 公共支撑的职责、单体依赖、平台边界与验证方法见[公共支撑说明](docs/common-support.md)。

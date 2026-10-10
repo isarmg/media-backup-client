@@ -1666,7 +1666,7 @@ checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
 [[package]]
 name = "xcsc"
 version = "1.0.0"
-source = "git+https://github.com/isarmg/xcsc.git?rev=00770c007912b276f5bb1075abfefe3c31026276#00770c007912b276f5bb1075abfefe3c31026276"
+source = "git+https://github.com/isarmg/xcsc.git?rev=c45e48e93e360542c2e1db6c6441a9e29b344b03#c45e48e93e360542c2e1db6c6441a9e29b344b03"
 dependencies = [
  "aes-gcm",
  "async-trait",
@@ -1738,7 +1738,7 @@ dependencies = [
 [[package]]
 name = "xszs-protocol"
 version = "1.0.0"
-source = "git+https://github.com/isarmg/xszs.git?rev=e7959ec4f30bfe86818253b7c075872dc0abc4da#e7959ec4f30bfe86818253b7c075872dc0abc4da"
+source = "git+https://github.com/isarmg/xszs.git?rev=c0aa705df39d3187166f62af4faab7c821be9baa#c0aa705df39d3187166f62af4faab7c821be9baa"
 dependencies = [
  "serde",
  "serde_json",

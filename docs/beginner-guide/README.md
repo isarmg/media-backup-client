@@ -22,9 +22,9 @@ xszc 解决的是“手机原始照片和视频可靠上传到自有服务器，
 完整的社交图库，也不是零知识加密系统。TLS 保护网络传输，服务端最终保存原始明文字节，因此服务器
 和数据卷管理员能够读取媒体；生产安全依赖主机权限、磁盘加密、TLS 和可靠备份。
 
-当前 Client 发行号为 `1.1.0`；持久状态合同仍是应用版本 `1.0.0`、revision 1、
-`xszc-mobile-v1` 与 SQLite schema revision 1。移动 `/v1` API 和 `plain-v1` 存储由固定
-Server protocol revision 定义。发现非当前本地状态时 Client 必须零写入拒绝，不能猜测或转换。
+当前客户端发行号为 `1.1.0`；持久状态合同仍是应用版本 `1.0.0`、revision 1、
+`xszc-mobile-v1` 与 SQLite 结构修订 1。移动 `/v1` API 和 `plain-v1` 存储由固定
+服务端 protocol revision 定义。发现非当前本地状态时客户端必须零写入拒绝，不能猜测或转换。
 
 ## 2. 认识四层架构
 
@@ -41,12 +41,12 @@ Server protocol revision 定义。发现非当前本地状态时 Client 必须�
 
 - 原生层拥有相册权限、系统后台任务和 Keychain/Keystore。
 - Rust 移动核心拥有严格 JSON 合约、SQLite 队列、分块状态和幂等提交逻辑。
-- 服务端拥有身份、配额、图库组织、审计、对象存储和当前 Schema。
+- 服务端拥有身份、配额、图库组织、审计、对象存储和当前结构定义。
 - 反向代理拥有公网 TLS；服务端默认只应监听回环地址。
 
 ## 3. 准备开发环境
 
-Rust Client 核心开发需要仓库固定的 Rust 与 Cargo：
+Rust 客户端核心开发需要仓库固定的 Rust 与 Cargo：
 
 ```bash
 rustup show
@@ -58,25 +58,25 @@ Android 还需要 JDK、Android SDK API 36、NDK `28.2.13676358` 和 `cargo-ndk`
 Xcode、XcodeGen，以及 `aarch64-apple-ios`、`aarch64-apple-ios-sim` Rust target。具体构建命令见
 [运维文档](../operations.md)。
 
-本仓库没有 Server `.env`。不要把授权码、设备 Token 或签名材料写入源码树。
+本仓库没有服务端 `.env`。不要把授权码、设备 Token 或签名材料写入源码树。
 
 ## 4. 从代码入口开始阅读
 
 推荐顺序：
 
-1. `Cargo.toml`、`xcsc-client.toml` 与三个 crate manifest：理解版本和依赖边界。
-2. `crates/client-core/src/lib.rs` 与 `database.rs`：理解移动队列和本地当前 Schema。
+1. `Cargo.toml`、`xcsc-client.toml` 与三个 crate 清单：理解版本和依赖边界。
+2. `crates/client-core/src/lib.rs` 与 `database.rs`：理解移动队列和本地当前结构定义。
 3. `crates/crypto/src/lib.rs`：理解分块、BLAKE3 和恢复校验 helper。
 4. `crates/mobile-ffi/src/lib.rs`、`android.rs` 与生成 Header：理解 ABI/JNI 边界。
 5. Android 的 `BackupWorker.kt`、iOS 的 `BackupCoordinator.swift`：理解宿主调度。
 6. 两端 `RemoteLibrary`、相册扫描器与 UI：理解恢复和图库操作。
 
-协议 crate、Server handler、管理认证和对象存储源码位于独立 Server 仓库；只有需要跨仓库追踪请求时
+协议 crate、服务端处理函数、管理认证和对象存储源码位于独立服务端仓库；只有需要跨仓库追踪请求时
 才沿 Cargo 中固定的 Git revision 阅读对应源码。
 
 ## 5. 完成一次客户端开发验证
 
-本仓库不启动 Server。先验证 Rust 合同与核心状态机：
+本仓库不启动服务端。先验证 Rust 合同与核心状态机：
 
 ```bash
 ./scripts/check-mobile-contract.sh
@@ -84,7 +84,7 @@ cargo test --workspace --locked
 ```
 
 随后按平台构建 Android Debug 或 iOS Simulator 版本。真实配对需要另行部署与当前 protocol revision
-兼容的 Server，并在客户端填写经过证书验证、没有路径后缀的 HTTPS 根地址。
+兼容的服务端，并在客户端填写经过证书验证、没有路径后缀的 HTTPS 根地址。
 
 ## 6. 理解一次上传
 
@@ -96,7 +96,7 @@ cargo test --workspace --locked
 
 ## 7. 理解认证
 
-- 浏览器管理员使用 `__Host-xcss-xszs-session` Cookie 与 Session 绑定 CSRF。
+- 浏览器管理员使用 `__Host-admin-xszs-session` Cookie 与 Session 绑定 CSRF。
 - 移动设备使用每实例授权码配对，bootstrap 后取得 Bearer Token；服务端更换授权码会撤销旧 Token。
 - 自动化使用可撤销 API Key。
 - `/metrics` 使用独立 `METRICS_TOKEN`。
@@ -106,25 +106,25 @@ cargo test --workspace --locked
 
 ## 8. 如何安全修改
 
-修改协议时，同时更新 Rust DTO、Android/iOS 合约、FFI 头文件与契约测试；修改 Schema 时更新当前
-Schema、元数据指纹和所有新库测试，不在产品里添加 migration；修改发行布局时更新 manifest 生成器、
+修改协议时，同时更新 Rust DTO、Android/iOS 合约、FFI 头文件与契约测试；修改结构定义时更新当前
+结构定义、元数据指纹和所有新库测试，不在产品里添加 migration；修改发行布局时更新 manifest 生成器、
 运行时验证器和部署测试。完成修改后运行根 README 的完整门禁。
 
-常见错误：只改一个移动端、为非当前 JSON 字段增加 alias、直接编辑既有数据库、让服务端读取
+常见错误：只改一个移动端、为非当前 JSON 字段增加别名、直接编辑既有数据库、让服务端读取
 移动端 Keychain/Keystore、或者让反向代理来源头绕过真实 peer 校验。
 
 ## 9. 调试方法
 
 先区分错误发生在权限扫描、本地队列、HTTPS、鉴权、上传分块、提交事务还是文件系统。当前日志没有
-统一 request ID，应以时间、job/upload/asset/resource ID 和操作事件关联，同时不得记录密码、Token 或
+统一请求 ID，应以时间、job/upload/asset/resource ID 和操作事件关联，同时不得记录密码、Token 或
 媒体内容。数据库或存储异常先运行 `doctor`；
 若它报告版本/Schema 不匹配，不要强行修表；停止当前操作并保全数据库与暂存目录，确认程序与本地状态合同一致。
 
 ## 10. 术语
 
-- **BLAKE3**：本项目用于内容完整性和重复项分组的 Hash。
+- **BLAKE3**：本项目用于内容完整性和重复项分组的哈希。
 - **CSRF**：浏览器 Cookie 会话的跨站请求伪造防护。
 - **FFI/JNI**：Rust 与 Swift/Kotlin 之间的调用边界。
-- **WAL**：SQLite Write-Ahead Log；数据库一致性副本必须考虑其 sidecar。
+- **WAL**：SQLite Write-Ahead Log；数据库一致性副本必须考虑其伴随文件。
 - **epoch**：不兼容合约代，本项目移动端当前值为 `xszc-mobile-v1`。
 - **fail closed**：无法证明输入安全或身份精确匹配时拒绝处理。

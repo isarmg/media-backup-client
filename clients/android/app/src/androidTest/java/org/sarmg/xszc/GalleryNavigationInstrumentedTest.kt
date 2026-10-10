@@ -136,8 +136,10 @@ class GalleryNavigationInstrumentedTest {
             context.contentResolver.openOutputStream(uri)!!.use { output -> input.copyTo(output) }
         }
         context.contentResolver.update(uri, ContentValues().apply { put(MediaStore.Video.Media.IS_PENDING, 0) }, null, null)
-        compose.waitUntil(30_000) { compose.onAllNodesWithTag("gallery.photo.$uri").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithTag("gallery.photo.$uri").performClick()
+        // Lazy grids compose visible rows only; wait for catalog refresh before locating the video.
+        compose.waitUntil(30_000) { compose.onAllNodesWithText("共 41 项").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("gallery.grid").performScrollToNode(hasTestTag("gallery.photo.$uri"))
+        compose.onNodeWithTag("gallery.photo.$uri").assertIsDisplayed().performClick()
         compose.waitUntil(15_000) { compose.onAllNodesWithContentDescription("播放").fetchSemanticsNodes().isNotEmpty() }
         val viewport = compose.onNodeWithTag("video.preview").fetchSemanticsNode().boundsInRoot
         assertEquals(context.resources.displayMetrics.widthPixels.toFloat(), viewport.width, 1f)

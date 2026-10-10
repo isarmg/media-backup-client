@@ -18,39 +18,38 @@
 普通文件路径。
 
 `BackupScheduler` 配置 WorkManager 网络/电量策略，`BackupWorker` 驱动 Rust queue 与 `BackupApi`。
-Worker 重启时从 durable state 继续，不能仅依赖 Compose 内存状态。自动扫描一律使用
-`replace_members=false` 增量同步相册，部分授权或分批扫描不会移除本次未看到的远端成员。
+Worker 重启时从持久状态继续，不能仅依赖 Compose 内存状态。Android 只有在扫描未截断、未启用“仅相机目录”、照片和视频均启用且媒体访问为完整授权时，才请求替换相册成员；其他情况使用
+`replace_members=false` 追加同步。请求超过 10,000 个成员时拆分，替换标志只用于首批，后续批次追加。
 
-“从 durable state 继续”必须按状态理解：`ready` job 和带 `prepared_json` 的到期 `retry_wait` job 都会
+“从持久化的 state 继续”必须按状态理解：`ready` job 和带 `prepared_json` 的到期 `retry_wait` job 都会
 复用已经持久化的 part，无需读取导出临时源；进程重启还会把带准备结果的 `preparing` 或
 `uploading` 恢复成 `ready`。没有准备结果的任务才回到 `discovered` 并重新读取源文件。每次准备写入新的
-generation，成功持久化后回收同一 job 的旧 generation；准备中途失败的未引用 generation 要等后续成功
-准备才能被回收。不能用清空整个 staging 的方式排障。
+代次，成功持久化后回收同一任务的旧代次；准备中途失败的未引用代次要等后续成功
+准备才能被回收。不能用清空整个暂存区的方式排障。
 
-## Android Secret 与权限
+## Android 秘密与权限
 
 服务地址、实例授权码、用户可见设置与 Token 分级保存；授权码和 Token 由 Keystore 支持的加密存储保护。日志、Intent、
-SavedState 和 crash report 不包含凭据。Android 正式 package/app ID 只使用当前命名空间，不查找旧
-preference、database 或 staging。
+SavedState 和崩溃报告不包含凭据。Android 正式 package/app ID 只使用当前命名空间，不查找旧
+preference、database 或暂存区。
 
-正式 application ID 是 `org.sarmg.xszc`，Kotlin 路径、namespace、JNI 导出名和 APK badging 必须
-同时一致。Debug APK 只用于 CI/开发，永远不取得正式 Secret；Release 使用受保护 Environment 中两个
-PKCS#12 Secret，并在发布前核对唯一 signer、固定证书指纹和唯一 `arm64-v8a` JNI。安装包仅支持当前
+正式应用 ID 是 `org.sarmg.xszc`，Kotlin 路径、命名空间、JNI 导出名和 APK badging 必须
+同时一致。Debug APK 只用于 CI/开发，永远不取得正式秘密；Release 使用受保护 Environment 中两个
+PKCS#12 秘密，并在发布前核对唯一签名者、固定证书指纹和唯一 `arm64-v8a` JNI。安装包仅支持当前
 package/证书身份，JNI 仅导出当前 ABI 符号。
 
 ## iOS 扫描
 
-`PhotoScanner` 通过 PhotoKit fetch result 和授权范围读取 asset/album，必要时请求 resource stream。
-limited library 权限下扫描只覆盖当前授权集合。相册同步固定为 `replace_members=false`，仅追加已备份
-成员；权限收缩或扫描批次边界不会触发远端成员删除。
+`PhotoScanner` 通过 PhotoKit 查询结果和授权范围读取 asset/album，必要时请求资源流。
+有限照片库权限下扫描只覆盖当前授权集合，并以 `replace_members=false` 追加同步成员。iOS 完整授权时请求替换；超过 10,000 个成员会拆分，只有首批保留替换标志，后续批次追加。不能把有限授权的可见集合当作完整照片库。
 
 `BackupCoordinator` 管理扫描/队列/后台任务，`BackgroundUploader` 用 `taskDescription` 关联 URLSession
-task 与 durable job。当前 `AppDelegate` 只注册 BGProcessingTask，没有实现 background URLSession 的
-relaunch completion handoff；因此只能保证现有 delegate 生命周期内的回调，不能宣称杀进程后已闭环。
+task 与持久化的 job。当前 `AppDelegate` 只注册 BGProcessingTask，没有实现后台 URLSession 的
+进程重新启动后的完成回调交接；因此只能保证现有 delegate 生命周期内的回调，不能宣称杀进程后已闭环。
 `BackgroundUploader.submit` 逐块等待上传回调并提交完成回执；自动扫描中的队列处理完成后同步相册。
 本轮尚未备份的资产成员可在后续运行中补齐。
 
-## iOS Secret 与恢复
+## iOS 秘密与恢复
 
 Token 存 Keychain。恢复路径先取得 manifest，再将下载文件写入私有暂存目录并调用 Rust 校验
 size/BLAKE3；校验通过后才交给 PhotoKit `performChanges`。Android 在发布到 MediaStore 前采用相同
@@ -72,4 +71,4 @@ Rust panic 经共享边界转成 255，panic 内容不写入宿主日志；`pani
 ## UI 可观察状态
 
 至少区分扫描中、待上传、正在上传、可重试失败、永久拒绝、同步中和恢复结果。显示统计不能成为状态
-事实源；重启后从 SQLite/API 重建。取消只是停止本轮工作，是否删除 durable job 必须由明确用户动作决定。
+事实源；重启后从 SQLite/API 重建。取消只是停止本轮工作，是否删除持久化的 job 必须由明确用户动作决定。

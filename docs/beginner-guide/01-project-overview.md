@@ -32,9 +32,9 @@ Keystore                     Keychain
        └─ DATA_DIR blobs
 ```
 
-Server 仓库中的 `protocol` crate 定义 wire DTO，本仓库以完整 Git revision 引用它；`crypto` 定义内容
-Hash 等基础能力；`client-core` 定义移动任务库；`mobile-ffi` 只做语言边界。账户、上传、图库、文件和
-运维命令属于独立的 Server 仓库。
+服务端仓库中的 `protocol` crate 定义线上协议 DTO，本仓库以完整 Git revision 引用它；`crypto` 定义内容
+哈希等基础能力；`client-core` 定义移动任务库；`mobile-ffi` 只做语言边界。账户、上传、图库、文件和
+运维命令属于独立的服务端仓库。
 
 ## 两类持久状态
 
@@ -47,18 +47,18 @@ Hash 等基础能力；`client-core` 定义移动任务库；`mobile-ffi` 只做
 
 ## 当前版本身份
 
-Client 发行版本由根目录 `VERSION` 指定，当前为 `1.1.0`。持久状态与 wire 合同有独立兼容身份：产品
+客户端发行版本由根目录 `VERSION` 指定，当前为 `1.1.0`。持久状态与线上协议合同有独立兼容身份：产品
 `xszc`、应用版本 `1.0.0`、revision 1、移动 HTTP `/v1`、存储 `plain-v1`、epoch
-`xszc-mobile-v1`、本地 SQLite schema revision 1 和 xcsc ABI revision 1。发行号变化
-不会静默改写这些持久化身份；合同字段或本地 Schema 不匹配时失败关闭。
+`xszc-mobile-v1`、本地 SQLite 结构修订 1 和 xcsc ABI 修订 1。发行号变化
+不会静默改写这些持久化身份；合同字段或本地结构定义不匹配时失败关闭。
 
-项目不注册旧项目名、不识别旧应用 ID、不扫描旧 state directory，也不为旧 JSON 字段添加 alias。
+项目不注册旧项目名、不识别旧应用 ID、不扫描旧状态目录，也不为旧 JSON 字段添加别名。
 
 ## 推荐源码阅读入口
 
-先读根 `Cargo.toml`、`xcsc-client.toml` 和各 crate manifest，再读 `crates/client-core/src/lib.rs`、
+先读根 `Cargo.toml`、`xcsc-client.toml` 和各 crate 清单，再读 `crates/client-core/src/lib.rs`、
 `crates/crypto/src/lib.rs` 与 `crates/mobile-ffi/src/lib.rs`。随后分别进入 Android `BackupWorker.kt` 与 iOS
-`BackupCoordinator.swift`。需要查看 DTO 或服务端 handler 时，再进入固定依赖所指向的 Server 仓库。
+`BackupCoordinator.swift`。需要查看 DTO 或服务端处理函数时，再进入固定依赖所指向的服务端仓库。
 
 ## 本章检查题
 
