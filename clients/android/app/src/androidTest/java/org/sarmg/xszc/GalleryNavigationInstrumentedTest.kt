@@ -9,6 +9,7 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
+import android.util.Log
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.*
@@ -55,7 +56,28 @@ class GalleryNavigationInstrumentedTest {
         } catch (failure: ComposeTimeoutException) {
             // Keep the original failure and report the observation that the polling condition hid.
             lastSemanticsFailure?.let { failure.addSuppressed(it) }
-            runCatching { compose.onAllNodes(isRoot(), useUnmergedTree = true).printToLog("XszcGallerySeedFailure") }
+            runCatching {
+                // The collection overload defaults to depth zero, which hides the gallery's
+                // count, loading/error state, selected tab and all of its media nodes.
+                compose.onAllNodes(isRoot(), useUnmergedTree = true)
+                    .printToLog("XszcGallerySeedFailure", maxDepth = Int.MAX_VALUE)
+            }
+                .onFailure { failure.addSuppressed(it) }
+            runCatching {
+                val target = context
+                val profile = SecureConfig(target).profile
+                val handle = TransferStore.open(target, profile).handle
+                val nativeCount = LocalCatalog.index(handle, null, null, false).size
+                val mediaCounts = listOf(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, MediaStore.Video.Media.EXTERNAL_CONTENT_URI)
+                    .map { collection ->
+                        target.contentResolver.query(collection, arrayOf(MediaStore.MediaColumns._ID), null, null, null)
+                            ?.use { it.count } ?: -1
+                    }
+                // Counts and booleans only: do not log account, path or credential values.
+                Log.d("XszcGallerySeedFailure", "lifecycle=${compose.activityRule.scenario.state}; " +
+                    "fullMediaAccess=${LocalCatalog.hasFullAccess(target)}; " +
+                    "nativeCatalogCount=$nativeCount; mediaStoreCounts=$mediaCounts; fixtureCount=${photos.size}")
+            }
                 .onFailure { failure.addSuppressed(it) }
             throw failure
         }

@@ -12,7 +12,12 @@ trap 'rm -rf -- "$scratch"' EXIT
 javac -encoding UTF-8 -d "$scratch" crates/mobile-ffi/tests/jni/NativeBridgeV1.java
 TMPDIR="$scratch/unavailable-system-temp" java -Djava.library.path="$target_dir/debug" -cp "$scratch" \
   org.sarmg.xszc.NativeBridgeV1 "$scratch" 2>&1 | tee "$scratch/jni.log"
-if rg -q 'private-secret' "$scratch/jni.log"; then
-  echo "JNI leaked a private input or panic payload" >&2
-  exit 1
-fi
+# Python is already required above. A missing optional search utility must not
+# silently skip this privacy assertion; log read errors must also fail the step.
+python3 - "$scratch/jni.log" <<'PY'
+from pathlib import Path
+import sys
+
+if b"private-secret" in Path(sys.argv[1]).read_bytes():
+    raise SystemExit("JNI leaked a private input or panic payload")
+PY
