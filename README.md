@@ -1,60 +1,62 @@
 # xszc
 
-xszc `1.1.0` 是用于媒体备份的 Android 与 iOS 客户端。它读取用户授权的照片和视频，在本地维护上传队列，通过 HTTPS 备份到独立的 [xszs](https://github.com/isarmg/xszs)，并提供本地图库与云端图库。
+xszc 是 Android 与 iOS 媒体备份客户端，将用户授权的照片和视频通过 HTTPS 备份到自建 xszs 服务端。
 
-当前代码使用 Rust 1.99 和 SQLx 0.9。同步移动端 API、SQLite 当前结构及数据身份保持不变；正式状态以精确 Git 标签、Android/iOS 原生 CI 与 Release 资产为准。历史源码与验收记录独立归档，不能替代当前标签和产物的验证。
+## 项目功能
 
-仓库包含共享 Rust 核心、Android Kotlin/Compose 应用和 iOS SwiftUI 应用。Android 正式包为 arm64-v8a；iOS 最低部署目标为 26.0，仓库发布的 IPA 未签名，安装前需要使用自己的 Apple 身份签名。
+- 本地与云端图库、照片浏览和全屏视频播放。
+- 手动与自动备份、持久化上传队列、传输进度和原件下载。
+- 按网络、电源、媒体类型及相册设置备份范围，由系统安全存储管理凭据。
 
-## 配置概览
+## 适用平台
 
-先由服务端管理员创建备份实例并复制实例授权码。移动端只填写：
+Android 8.0（API 26）及以上，正式 APK 仅支持 arm64-v8a；iOS 26.0 及以上。iOS 发行包未签名，安装前需要使用自己的 Apple 身份签名。
 
-- 服务端的 HTTPS 根地址，例如 `https://backup.example.com`，不要附加 `/admin` 或 `/v1`；
-- 实例授权码；
-- 自动备份、网络、电源、媒体类型/相册和本地缓存策略。
+## 快速部署
 
-安装 Android Debug APK 并打开应用：
+1. 从 [v1.1.0 下载页](https://github.com/isarmg/xszc/releases/tag/v1.1.0) 获取对应 APK / IPA 和 `SHA256SUMS`，核对安装包 SHA-256。
+2. Android 安装 `xszc-android-1.1.0-arm64.apk`；iOS 为 `xszc-ios-1.1.0-unsigned.ipa` 签名后，通过 Xcode、Apple Configurator 或受管理部署系统安装。
+3. 请 xszs 管理员创建备份实例。在应用登录框填写 HTTPS 根地址（例如 `https://backup.example.com`，不附加路径），“密码”填写实例授权码。
+4. 在系统界面授权照片/视频访问，设置备份范围与网络、电源条件；先手动备份少量媒体，在“传输”和“云端”确认完成，再启用自动备份。
+
+Android 开发机已配置 ADB、设备已授权 USB 调试时，也可安装并打开正式包：
 
 ```sh
+adb install -r ./xszc-android-1.1.0-arm64.apk
+adb shell am start -n org.sarmg.xszc/.MainActivity
+```
+
+覆盖安装须使用相同签名；不要为解决签名冲突卸载应用，卸载会删除本地待传状态。
+
+## 编译部署
+
+先克隆本仓库并进入根目录，准备 Rust `1.99.0`。
+
+Android：准备 JDK 17、Gradle `9.5.0`、Android SDK 36 / Build Tools `36.0.0`、NDK `28.2.13676358` 和 platform-tools，设置 `ANDROID_HOME` 后在 Linux/macOS shell 执行：
+
+```sh
+rustup target add aarch64-linux-android
+cargo install cargo-ndk --version 4.1.2 --locked
+export ANDROID_NDK_ROOT="$ANDROID_HOME/ndk/28.2.13676358"
+export ANDROID_NDK_HOME="$ANDROID_NDK_ROOT"
+cargo ndk -t arm64-v8a -o clients/android/app/src/main/jniLibs build -p xszc-mobile --release --locked
+gradle -p clients/android testDebugUnitTest assembleDebug
 adb install -r clients/android/app/build/outputs/apk/debug/app-debug.apk
 adb shell am start -n org.sarmg.xszc/.MainActivity
 ```
 
-服务端存活检查应返回 HTTP `204`：
+这是开发用 Debug APK；正式包需要配置自己的发行签名并完成平台验收。
+
+iOS：在装有 Xcode 26、iOS 26 SDK 和 XcodeGen `2.46.0` 的 Mac 上执行：
 
 ```sh
-curl -fsS -o /dev/null -w '%{http_code}\n' https://backup.example.com/healthz
+./scripts/verify-ios-toolchain.sh
+rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+./scripts/build-ios-rust.sh
+(cd clients/ios && xcodegen generate)
+open clients/ios/Xszc.xcodeproj
 ```
 
-移动端没有用于写入账号、授权码或备份策略的受支持 CLI；这些设置必须在应用界面完成并由系统安全存储保护。Android/iOS 的逐步配置、权限、构建与验收命令见[完整配置指南](docs/configuration.md)。
+在 Xcode 选择 `Xszc` scheme、自己的签名团队和已连接设备，运行安装。模拟器调试需安装 iOS 26 运行时；配对测试保留本地签名，避免 Keychain 无法保存凭据。
 
-## 开发验证
-
-```sh
-./scripts/check-mobile-contract.sh
-./scripts/check-workflow-supply-chain.sh
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets --locked -- -D warnings
-cargo test --workspace --locked
-gradle -p clients/android testDebugUnitTest assembleDebug
-```
-
-## 文档
-
-- [文档总览](docs/README.md)
-- [分平台部署、重新配对、启停与卸载](docs/platform-setup.md)
-- [完整配置指南](docs/configuration.md)
-- [客户端运维与发布](docs/operations.md)
-- [初学者指南](docs/beginner-guide/README.md)
-- [项目工作流程](docs/project-workflow.md)
-
-第一方代码、文档和资源采用 [Apache License 2.0](LICENSE)。
-
-## 仓库布局
-
-本项目是真正的 Rust 工作区：根 `Cargo.toml`/`Cargo.lock` 约束唯一依赖图，`crates/crypto` 负责分块内容处理，`crates/client-core` 负责当前本地数据库、图库和传输业务，`crates/mobile-ffi` 提供移动端 C/JNI 入口。原生 UI 位于 `clients/android` 和 `clients/ios`；静态数据库权威定义位于根 `schema/`，构建和发行脚本位于根 `scripts/`。各业务模块的大测试文件放在相应模块旁，原生平台验收按各平台目录责任组织，`docs/` 描述当前用户流程和发行边界。
-
-当前发布版本：**1.1.0**。参见 [1.1.0 发布说明](docs/releases/1.1.0.md)。
-
-公共支撑的职责、单体依赖、平台边界与验证方法见[公共支撑说明](docs/common-support.md)。
+[详细文档](docs/README.md)

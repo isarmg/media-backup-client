@@ -23,3 +23,36 @@
 - [依赖与 unsafe 审查](unsafe-audit.md)
 
 公共支撑的职责、单体依赖、平台边界与验证方法见[公共支撑说明](common-support.md)。
+
+## 当前源码与仓库布局
+
+xszc `1.1.0` 使用 Rust `1.99.0` 与 SQLx `0.9`，移动 API、SQLite 当前结构及数据身份保持不变。正式状态以精确 Git 标签、Android/iOS 原生 CI 和实际 Release 资产为准；历史源码与验收记录不能替代当前产物验证。
+
+根 `Cargo.toml` / `Cargo.lock` 约束整个 Rust 工作区的唯一依赖图。`crates/crypto` 负责分块内容处理，`crates/client-core` 负责当前本地数据库、图库和传输业务，`crates/mobile-ffi` 提供 C/JNI 入口；Android Kotlin/Compose 与 iOS SwiftUI 原生界面位于 `clients/android`、`clients/ios`。数据库权威定义在 `schema/`，构建与发行脚本在 `scripts/`。各业务模块的大测试文件放在模块旁，原生验收按平台目录组织。
+
+第一方代码、文档和资源采用 [Apache License 2.0](../LICENSE)。
+
+## 配置与开发检查
+
+由服务端管理员创建备份实例，移动端只填写 HTTPS 根地址、实例授权码及自动备份/网络/电源/媒体范围/缓存策略。根地址不能附加 `/admin` 或 `/v1`；客户端没有写入账号、授权码或备份策略的受支持 CLI，必须使用应用界面与系统安全存储。
+
+开发机可只读检查服务端存活，正常应为 HTTP `204`，但仍须在手机完成真实上传验收：
+
+```sh
+curl -fsS -o /dev/null -w '%{http_code}\n' https://backup.example.com/healthz
+```
+
+准备 Android 原生依赖并按[配置指南](configuration.md)构建 Rust 库后，在仓库根目录执行：
+
+```sh
+./scripts/check-mobile-contract.sh
+./scripts/check-workflow-supply-chain.sh
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo test --workspace --locked
+gradle -p clients/android testDebugUnitTest assembleDebug
+adb install -r clients/android/app/build/outputs/apk/debug/app-debug.apk
+adb shell am start -n org.sarmg.xszc/.MainActivity
+```
+
+Android 正式包仅 arm64-v8a；iOS 最低 26.0，发行 IPA 未签名，安装前须使用自己的 Apple 身份签名。平台配置、权限、安装与验收细节见[配置指南](configuration.md)。
