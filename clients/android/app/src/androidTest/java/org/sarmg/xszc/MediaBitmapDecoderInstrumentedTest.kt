@@ -98,8 +98,12 @@ class MediaBitmapDecoderInstrumentedTest {
                         assertTrue("thumbnail orientation=$orientation green", kotlin.math.abs(Color.green(pixel) - Color.green(target)) < 40)
                         assertTrue("thumbnail orientation=$orientation blue", kotlin.math.abs(Color.blue(pixel) - Color.blue(target)) < 40)
                     }
-                    assertEquals(ExifInterface.ORIENTATION_NORMAL,
-                        ExifInterface(thumbnail.path).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL))
+                    // ExifInterface supplies UNDEFINED for a JPEG without an orientation tag.
+                    // Baked pixels must require no further transform; explicit NORMAL is also valid.
+                    val outputOrientation = ExifInterface(thumbnail.path)
+                        .getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_UNDEFINED)
+                    assertTrue("thumbnail must not request another orientation transform: $outputOrientation",
+                        outputOrientation == ExifInterface.ORIENTATION_UNDEFINED || outputOrientation == ExifInterface.ORIENTATION_NORMAL)
                     assertArrayEquals(originalBytes, file.readBytes())
                 } finally { bitmap.recycle() }
             } finally { thumbnail.delete() }
