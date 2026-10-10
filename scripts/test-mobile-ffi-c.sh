@@ -30,7 +30,7 @@ if [[ "$(uname -s)" == Darwin ]]; then
 else
   symbols="$(nm -D --defined-only "$target_dir/debug/libxszc_mobile.so")"
 fi
-if rg 'xszc_v0_2_r1|xcsc_ffi_.*_v[2-9]|panicProbe' <<< "$symbols"; then
+if grep -E 'xszc_v0_2_r1|xcsc_ffi_.*_v[2-9]|panicProbe' <<< "$symbols"; then
   echo "removed FFI symbols remain" >&2
   exit 1
 fi

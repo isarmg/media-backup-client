@@ -44,16 +44,18 @@ final class NavigationTests: XCTestCase {
         play.tap()
         let playing = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "暂停"), object: play)
         XCTAssertEqual(XCTWaiter.wait(for: [playing], timeout: 5), .completed)
-        // At 1.5x, XCTest's polling can skip a particular second. Require
-        // actual advancement instead of catching one transient timestamp.
-        let advanced = XCTNSPredicateExpectation(predicate: NSPredicate(
-            format: "exists == true AND NOT (value BEGINSWITH %@)", "00:00"), object: progress)
-        XCTAssertEqual(XCTWaiter.wait(for: [advanced], timeout: 5), .completed)
         let hidden = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: play)
         XCTAssertEqual(XCTWaiter.wait(for: [hidden], timeout: 8), .completed)
         preview.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5)).tap()
         play.tap()
         XCTAssertEqual(play.label, "播放")
+        // Read advancement while paused, after the controls have been revealed.
+        // The progress control intentionally disappears during automatic hiding.
+        // At 1.5x, XCTest's polling can skip a particular second. Require
+        // actual advancement instead of catching one transient timestamp.
+        let advanced = XCTNSPredicateExpectation(predicate: NSPredicate(
+            format: "exists == true AND NOT (value BEGINSWITH %@)", "00:00"), object: progress)
+        XCTAssertEqual(XCTWaiter.wait(for: [advanced], timeout: 5), .completed)
         app.buttons["video.backup"].tap()
         XCTAssertEqual(app.buttons["video.backup"].label, "取消选择备份")
         play.tap()
