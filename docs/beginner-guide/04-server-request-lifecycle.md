@@ -4,7 +4,8 @@
 
 请求首先以连接扩展中的真实套接字对端为信任起点。可信代理模块只有在直接 peer 属于配置 CIDR 时
 才解释转发链，并从右向左去除可信 hop；否则忽略所有 forwarded header。随后执行 HTTPS policy、body
-limit、路由匹配、身份提取、CSRF/权限、DTO 反序列化，最后进入业务处理函数。当前没有请求 ID 中间件。
+limit、路由匹配、身份提取、CSRF/权限、DTO 反序列化，最后进入业务处理函数。统一 HTTP 运行时在
+路由处理前生成或校验单一 `X-Request-ID`，拒绝不合法或重复的该请求头，并将有效 ID 放入请求扩展。
 
 ## 四种身份
 
@@ -54,8 +55,9 @@ unlink 与 blob-row 删除在同一 SQLite 事务中收口，失败回滚并由�
 ## 响应与日志
 
 成功 JSON 使用当前 DTO；`AppError` 统一映射为顶层包含 `code/message/retryable` 的 ErrorEnvelope；
-当前实现不生成请求 ID，因此不伪造该可选字段。TraceLayer 记录 HTTP span，关键认证、提交协调和
-存储错误另写结构化事件；不得假定每条日志都有统一操作 ID 或耗时字段。日志不应包含密码、Token、
+统一 HTTP 运行时给错误响应关联 `request_id`，并在响应头返回同一 `X-Request-ID`。业务请求日志
+建立含该 ID 的 HTTP span，在 `xszs.http.completed` 事件记录状态码和耗时；关键认证、提交协调和
+存储错误另写结构化事件。非 HTTP 的后台或本地日志仍不一定具有请求 ID 或耗时字段。日志不应包含密码、Token、
 媒体字节或任意客户端路径。metrics 只输出固定聚合 gauge，不使用 username 等高基数标签。
 
 ## 请求失败分层

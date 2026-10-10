@@ -100,7 +100,7 @@ React 管理页、配置与 systemd、发行 identity/manifest、CI/脚本、正
 | MED-U-015 | final object 与 stage 位于同一受控文件系统，以 no-replace `linkat` 发布同一 inode、核对设备号和 inode 后 fsync 目标父目录 | `RootedFs::link_no_replace`、`CommitKeys` | 保障 | 高 | 可覆盖 winner、发布错误实体或在崩溃后丢目录项 | `EEXIST`、identity swap、fsync 故障；不是 rename |
 | MED-U-016 | metadata commit 有 blob 唯一竞争重试，最终 resource upsert 幂等 | `commit_metadata_with_race_retry`、unique index | 保障 | 高 | 并发相同内容会报随机冲突或重复 blob | 双 complete、唯一约束 race、返回 deduplicated |
 | MED-U-017 | commit 前再次核对 account enabled、storage path、quota 和对象身份 | `begin_commit`、`ensure_commit_quota` | 保障 | 高 | 上传期间改账户策略后仍可越权提交 | disable、path change、quota shrink |
-| MED-U-018 | serve 启动时先 reconcile active commits 与无引用 blob，之后每 120 秒重复且跳过错过 tick；`reconcile scan` 提供持锁手工入口，无法证明的 upload 状态标 unknown 而非伪成功 | `upload_commit::reconcile_all`、`main.rs` | 保障 | 高 | 崩溃后的 stage/final/DB 组合或待回收 blob 会永久卡住，亦可能被误删 | commit_started/finalizing 各物理组合、orphan blob、周期/手工重试；后台任务无独立优雅退出等待 |
+| MED-U-018 | `run` 启动时先 reconcile active commits 与无引用 blob，之后每 120 秒重复且跳过错过 tick；周期协调为运行时拥有的 Degrading 任务，接收停机信号并参与有界优雅关闭；`reconcile scan` 提供持锁手工入口，无法证明的 upload 状态标 unknown 而非伪成功 | `upload_commit::reconcile_all`、`main.rs` | 保障 | 高 | 崩溃后的 stage/final/DB 组合或待回收 blob 会永久卡住，亦可能被误删 | commit_started/finalizing 各物理组合、orphan blob、周期/手工重试、停机信号与有界关闭；未完成持久状态仍由下次启动协调 |
 | MED-U-019 | 目录锚定文件系统拒绝绝对路径、`.`/`..`、symlink、特殊文件和账户根逃逸 | `rooted_fs.rs`、`storage.rs` | 保障 | 高 | 上传或下载可越出 `DATA_DIR` | symlink/rename race、FIFO、嵌套账户路径；当前发布会受控创建 hardlink，数据根须独占写权限 |
 | MED-U-020 | account storage paths 全局唯一且不得互相包含，保留 `uploads` 内部目录 | `admin.rs`、doctor | 保障 | 高 | 两个账户可能读写同一物理树 | equal/parent/child/reserved、并发管理变更 |
 | MED-U-021 | resource content 按授权 account 打开 blob，流式返回 Content-Length/MIME 和 encoding header | `resource_content` | 核心 | 高 | 无法恢复原始媒体，或可跨账户读取 | own/cross account、missing file、large stream、Content-Length |
@@ -111,7 +111,7 @@ React 管理页、配置与 systemd、发行 identity/manifest、CI/脚本、正
 |---|---|---|---|---|---|---|
 | MED-L-001 | asset 以 account+device+source_asset_id 唯一，resource 以 asset+source_resource_id 唯一 | 结构定义 unique、upserts | 核心 | 高 | 同一手机媒体重扫会产生重复逻辑对象 | 重扫、不同 device、资源更新 |
 | MED-L-002 | `resources.role` 保存 primary/thumbnail 等媒体资源用途，不是身份权限 | `resources.role`、mobile scanners | 核心 | 中 | 客户端无法选择原图与缩略图；误删为“角色清理”会破坏恢复 | primary/thumbnail manifest；不得用于 auth |
-| MED-L-003 | timeline 使用 source time+UUID 不透明游标，limit 1–250，可筛选 trash/favorite/archived/album/tag；媒体类型属于后续全库查询增强 | `library::timeline` | 核心 | 高 | 大媒体库无法稳定分页或筛选 | 相同时间、下一页、坏游标、账户绑定 |
+| MED-L-003 | timeline 使用 source time+UUID 不透明游标，limit 1–250，可筛选 trash/favorite/archived/album/tag，以及 media_kind、from_ms（含）、to_ms（不含）和 device_id | `library::timeline`、`TimelineQuery` | 核心 | 高 | 大媒体库无法稳定分页或筛选 | 相同时间、下一页、坏游标、账户绑定、类型/设备与时间范围组合，拒绝起点不小于终点 |
 | MED-L-004 | sync 使用 account 自增 sequence，limit 1–1000，返回 next_sequence/has_more | `account_changes`、`sync_changes` | 核心 | 高 | 客户端只能反复全量读取或漏变更 | 空页、多页、并发变更、跨账户 |
 | MED-L-005 | 收藏/归档为 asset 布尔状态，PATCH 只改变明确提供字段并记录 change/audit | `update_asset` | 建议保留 | 中 | 备份仍在但无法做基础整理 | 单字段/双字段/空 patch、CSRF不适用数据面 token |
 | MED-L-006 | trash/restore 通过明确动作改变 deleted_at；普通列表隐藏 trash | `trash_asset`、`restore_asset` | 建议保留 | 高 | 只能直接永久删或永不删除，误删保护下降 | 重复动作、timeline trashed、change event |
@@ -229,7 +229,7 @@ React 管理页、配置与 systemd、发行 identity/manifest、CI/脚本、正
 | MED-X-001 | 不提供服务端 ARM/musl/Windows/macOS；移动客户端仍支持各自正式 ABI | compile/release/runtime gates | 核心 | 高 | 服务端扩平台需重做文件系统、systemd、脚本和发行证明 | 新平台完整 CI、真实部署、等价安全测试 |
 | MED-X-002 | 不提供桌面同步客户端或双向文件夹镜像 | 无 desktop client/conflict 结构定义 | 核心 | 高 | 会引入文件名、冲突、删除传播和任意文件类型模型 | 独立产品 RFC、冲突状态机、多平台矩阵 |
 | MED-X-003 | 不提供端到端加密；服务端管理员可读取媒体 | `plain-v1` | 核心 | 高 | E2EE 会改变 key recovery、缩略图、去重、doctor 和恢复 | 双端密钥生命周期、灾备、不可恢复风险设计 |
-| MED-X-004 | 不提供服务端视频转码、RAW 派生或媒体解码 | 无 worker/codec deps | 核心 | 高 | 引入不可信解析攻击面、作业队列和大量派生状态 | sandbox、资源预算、job recovery、供应链 |
+| MED-X-004 | 不提供服务端视频转码或通用 RAW 派生；已提供有限图片解码预览：校正方向后生成最长边 1600 的 JPEG，使用明确的并发、像素与内存预算 | `media_delivery.rs`、`image` 依赖 | 核心 | 高 | 扩展到视频转码或其他派生格式会增加不可信解析、任务队列和派生状态责任 | 当前预览格式/预算/不支持格式拒绝；新增处理须验证隔离、资源预算、任务恢复及供应链 |
 | MED-X-005 | 不提供人脸识别、语义搜索、地图或视觉相似去重 | 无 model/index 结构定义 | 可选 | 高 | 增加生物特征隐私、模型版本和索引删除责任 | 明示同意、模型 SBOM、删除/重建、算力预算 |
 | MED-X-006 | 不提供公开分享链接或跨账户协作 | 所有资源 route 绑定 account auth | 核心 | 高 | 需要公开 token、撤销、滥用控制和新的授权关系 | threat model、限流、审计、有效期 |
 | MED-X-007 | 不跨账户去重；blob unique 以 account 为边界 | `blobs_content_unique_idx` | 保障 | 高 | 跨账户内容存在性侧信道和计费归属问题 | 隐私证明、配额/删除语义、加密策略 |

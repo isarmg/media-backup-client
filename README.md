@@ -2,7 +2,7 @@
 
 xszc `1.1.0` 是用于媒体备份的 Android 与 iOS 客户端。它读取用户授权的照片和视频，在本地维护上传队列，通过 HTTPS 备份到独立的 [xszs](https://github.com/isarmg/xszs)，并提供本地图库与云端图库。
 
-当前代码使用 Rust 1.99 和 SQLx 0.9。同步移动端 API、SQLite 当前结构及数据身份保持不变；正式状态以精确 Git 标签、Android/iOS 原生 CI 与 Release 资产为准。此前已公开版本的标签和原生资产保持封存。
+当前代码使用 Rust 1.99 和 SQLx 0.9。同步移动端 API、SQLite 当前结构及数据身份保持不变；正式状态以精确 Git 标签、Android/iOS 原生 CI 与 Release 资产为准。历史源码与验收记录独立归档，不能替代当前标签和产物的验证。
 
 仓库包含共享 Rust 核心、Android Kotlin/Compose 应用和 iOS SwiftUI 应用。Android 正式包为 arm64-v8a；iOS 最低部署目标为 26.0，仓库发布的 IPA 未签名，安装前需要使用自己的 Apple 身份签名。
 

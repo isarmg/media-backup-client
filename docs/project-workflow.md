@@ -107,7 +107,7 @@ MediaStore/PhotoKit 写入系统照片库。当前 Android/iOS 宿主会检查 H
 ```text
 干净 checkout + 精确 v1.1.0 tag
   -> 校验 tag、VERSION、Android versionName 与 iOS MARKETING_VERSION
-  -> 运行 Rust、合同、供应链与移动平台测试
+  -> Release 运行 Rust、合同、供应链和 Android JVM 测试；独立主 CI 验收 Android/iOS 原生测试
   -> Android 从受保护 Environment 取得规范 alias 的既有签名 PKCS#12，assembleRelease
   -> apksigner 唯一 signer/固定指纹 + aapt2 application ID + arm64-v8a ABI 复验
   -> 构建未签名 iOS IPA、校验和与身份清单

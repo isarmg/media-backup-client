@@ -13,7 +13,7 @@ GitHub 仓库 `isarmg/xszc` 的 `android-signing` 环境保存两个秘密配置
 私钥和密码不进入 Git、Release 附件或构建日志；发布任务只在临时目录生成权限受限的签名输入。
 
 正式流水线执行 `assembleRelease`，并使用 `apksigner` 验证签名、唯一证书及以上指纹；同时检查应用 ID 和唯一 `arm64-v8a` 原生库。
-只有客户端校验、Android 和 iOS 全部完成后才创建 Release。本仓库不发布服务端。iOS 制品明确标注未签名，不冒充具有 Apple provisioning 的可安装包。
+Release 工作流在 Rust/合同校验、Android JVM 测试与签名构建、iOS 未签名构建及打包全部成功后创建 Release。Android 模拟器仪表测试和 iOS 单元/UI 测试由独立主 CI 执行；Release 创建成功不能代替这些原生结果，最终验收必须核对同一源码的两条工作流及下载资产。本仓库不发布服务端。iOS 制品明确标注未签名，不冒充具有 Apple provisioning 的可安装包。
 
 签名私钥另有受限权限的离线备份。仓库管理员应将备份转存至自己的加密存储并妥善保存密码；GitHub 秘密配置不能作为唯一可恢复备份。
 

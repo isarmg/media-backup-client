@@ -13,7 +13,8 @@
 
 ## Android 扫描
 
-`MediaScanner` 通过 ContentResolver/MediaStore 分页读取媒体，使用稳定系统 ID、修改时间、MIME、大小和
+`MediaScanner` 通过 ContentResolver/MediaStore 查询并遍历 Cursor，以入队数量预算限制本轮准备，
+不使用 LIMIT/OFFSET 分页。它使用稳定系统 ID、修改时间、MIME、大小和
 相册关系构造候选。`DeviceAlbums` 管理选择/排除。不要在主线程读取大文件，也不要假设 content URI 是
 普通文件路径。
 

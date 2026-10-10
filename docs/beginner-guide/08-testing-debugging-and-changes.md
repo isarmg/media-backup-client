@@ -36,8 +36,9 @@ Node、React、Vite 与 `clients/web` 命令属于服务端仓库。
 ## 调试分层
 
 先记录时间、设备任务 ID、upload ID 和 asset/resource ID，再定位层次：扫描权限 -> 本地队列 -> DNS/TLS
--> auth -> create -> part -> complete -> sync -> restore。当前服务端不签发请求 ID；如要新增，必须
-同步 ErrorEnvelope、代理传播、日志和客户端，而不能让排障手册依赖不存在的字段。
+-> auth -> create -> part -> complete -> sync -> restore。当前服务端统一 HTTP 运行时生成或校验
+`X-Request-ID`，在响应头、错误响应的 `request_id` 和 HTTP span 中关联该请求。可结合该 ID 查服务端
+日志；手机客户端未展示它的路径仍按任务和资源身份排查，不能假定每条本地日志都有请求 ID。
 
 ## SQLite 调试
 

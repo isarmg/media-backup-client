@@ -12,7 +12,7 @@
 |---|---|
 | `curl ... /healthz` | 检查公开 HTTPS 健康入口，正常 HTTP 204；不验证登录或上传 |
 | `rustup target add ...` | 安装交叉编译目标标准库，按平台准备 Android/iOS 构建 |
-| `cargo install cargo-ndk` | 安装 Android NDK/Rust 构建辅助工具 |
+| `cargo install cargo-ndk --version 4.1.2 --locked` | 安装与 CI 同版的 Android NDK/Rust 构建辅助工具，按工具锁文件解析依赖 |
 | `./scripts/build-android-rust.ps1` | Windows PowerShell 中编译 Android 原生 Rust 库 |
 | `gradle -p clients/android testDebugUnitTest assembleDebug` | 运行 Android JVM 单元测试并构建 Debug APK，不生成正式签名发行 |
 | `adb devices` | 查看已连接的调试设备和授权状态 |
@@ -55,7 +55,7 @@ Android 使用无标题的居中 Material 3 原生弹窗，iOS 使用无标题�
 
 ```powershell
 rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
-cargo install cargo-ndk
+cargo install cargo-ndk --version 4.1.2 --locked
 ./scripts/build-android-rust.ps1
 gradle -p clients/android testDebugUnitTest assembleDebug
 ```
@@ -79,7 +79,7 @@ adb shell am start -n org.sarmg.xszc/.MainActivity
 3. 在“密码”栏输入服务端管理员提供的实例授权码；
 4. 点击“登录”，等待账户行显示“备份实例已登录”，右侧显示“退出”；
 5. 在“设置 → 照片权限设置”直接进入系统 App 设置页，选择全部访问或限制访问；
-6. 按需要开启“自动备份”“仅 Wi-Fi”“后台仅充电时上传”，开关变更立即保存并生效；
+6. 按需要开启“自动备份”“仅 Wi-Fi 上传”“后台仅充电时运行”，开关变更立即保存并生效；
 7. 至少启用“自动备份照片”或“自动备份视频”之一；
 8. 选择“仅相机目录”，或关闭它后勾选可访问的自动备份相册，相册选择立即生效；
 9. 在“浏览缓存”中把磁盘缓存设置为 `64`～`1024 MiB`。
@@ -107,8 +107,12 @@ rustup target add aarch64-apple-ios aarch64-apple-ios-sim
 ./scripts/build-ios-rust.sh
 cd clients/ios
 xcodegen generate
+# 列出可用模拟器，选用已安装 iOS 26 运行时的实际 iPhone 设备 UUID。
+xcrun simctl list devices available
+# 将占位值替换为上一条输出中的实际 UUID，不使用通用的仅构建目标运行测试。
+simulator_udid="REPLACE_WITH_AVAILABLE_IOS26_SIMULATOR_UUID"
 xcodebuild -project Xszc.xcodeproj -scheme Xszc \
-  -sdk iphonesimulator test
+  -sdk iphonesimulator -destination "platform=iOS Simulator,id=$simulator_udid" test
 ```
 
 模拟器构建使用本地临时签名，无需 Apple Developer 证书。不要设置 `CODE_SIGNING_ALLOWED=NO` 运行配对流程，否则钥匙串可能返回 `-34018`，导致服务器已完成配对而应用无法保存凭据。

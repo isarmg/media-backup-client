@@ -19,10 +19,10 @@ systemd、Caddy 和服务端数据目录不属于本仓库；服务端部署请�
 
 ## 2. 通用 Rust、合同与 FFI 验证
 
-从干净 checkout 执行：
+从源码仓库根目录执行。第一条是正式发行检查：先检出本机已取得的精确 `v1.1.0` 标签并确保没有未提交或未跟踪内容；普通开发分支只运行后续的构建、合同和测试命令。
 
 ```bash
-./scripts/verify-release-version.sh
+./scripts/verify-release-version.sh v1.1.0
 ./scripts/check-mobile-contract.sh
 ./scripts/check-workflow-supply-chain.sh
 cargo fmt --all -- --check
@@ -41,7 +41,7 @@ Rust 使用仓库固定的 1.99.0 工具链。`check-mobile-contract.sh` 核对 
 
 ```powershell
 rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
-cargo install cargo-ndk
+cargo install cargo-ndk --version 4.1.2 --locked
 ./scripts/build-android-rust.ps1
 gradle -p clients/android testDebugUnitTest assembleDebug
 ```
@@ -66,8 +66,12 @@ rustup target add aarch64-apple-ios aarch64-apple-ios-sim
 ./scripts/build-ios-rust.sh
 cd clients/ios
 xcodegen generate
+# 列出可用模拟器，选用已安装 iOS 26 运行时的实际 iPhone 设备 UUID。
+xcrun simctl list devices available
+# 将占位值替换为上一条输出中的实际 UUID，不使用通用的仅构建目标运行测试。
+simulator_udid="REPLACE_WITH_AVAILABLE_IOS26_SIMULATOR_UUID"
 xcodebuild -project Xszc.xcodeproj -scheme Xszc \
-  -sdk iphonesimulator test
+  -sdk iphonesimulator -destination "platform=iOS Simulator,id=$simulator_udid" test
 ```
 
 模拟器配对/Keychain 测试使用有效的本地签名，不需要 Apple Developer 证书；不要禁用签名，否则可能返回 `-34018` 并无法保存已完成的配对凭据。

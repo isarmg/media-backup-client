@@ -50,7 +50,7 @@ Android/iOS 仅填写设备实例授权码，管理员用户名和密码不能�
 
 ```powershell
 rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
-cargo install cargo-ndk
+cargo install cargo-ndk --version 4.1.2 --locked
 .\scripts\build-android-rust.ps1
 gradle -p clients/android testDebugUnitTest assembleDebug
 ```

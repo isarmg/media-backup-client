@@ -25,9 +25,10 @@ trim ASCII whitespace 与 ASCII lowercase 后必须是 3–64 bytes、首尾字�
 移动 `/v1/auth/bootstrap` 精确接受实例 `authorization_code`、`device_name` 和 `platform`，成功后签发设备 Token；
 更换授权码清除旧 Token 并要求重新配对。不接受旧的 username/password body，也不提供兼容分支。
 
-失败响应不使用产品私有 `{error}`。服务端使用统一 ErrorEnvelope 契约，顶层为
-`{code,message,retryable}`；`code` 只用小写字母开头的安全 ASCII 标识，当前没有请求 ID 时不输出
-占位字段，当前没有结构化细节时也不输出 `details`。429 的 envelope 标记 `retryable:true`，并保留
+失败响应不使用产品私有 `{error}`。服务端使用统一 ErrorEnvelope 契约，顶层
+基础字段为 `{code,message,retryable}`；`code` 只用小写字母开头的安全 ASCII 标识。当前服务端统一
+HTTP 运行时生成或校验 `X-Request-ID`，在错误响应添加 `request_id` 并在响应头返回同一 ID；
+`request_id` 在数据合同中仍是可选诊断字段，不是授权凭据。没有结构化细节时不输出 `details`。429 的 envelope 标记 `retryable:true`，并保留
 标准 `Retry-After` header；客户端应以 header 决定等待时间，不从 message 文本解析策略。
 
 ## DTO 版本字段
