@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Run native UI tests and supply the external PhotoKit change they observe."""
 import os
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import shutil
 import subprocess
@@ -38,13 +39,25 @@ def main():
 
 def run_tests(command, simulator, refreshed_photo):
     with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                          text=True, bufsize=1) as test:
+                          text=True, bufsize=1) as test, ThreadPoolExecutor(max_workers=1) as imports:
+        imported = None
+
+        def import_photo():
+            try:
+                subprocess.run(["xcrun", "simctl", "addmedia", simulator,
+                                str(refreshed_photo)], check=True, timeout=30)
+            except BaseException:
+                test.terminate()
+                raise
+
         try:
             for line in test.stdout:
                 print(line, end="", flush=True)
-                if line.strip() == "XSZC_UI_READY_FOR_PHOTO_CHANGE":
-                    subprocess.run(["xcrun", "simctl", "addmedia", simulator,
-                                    str(refreshed_photo)], check=True, timeout=30)
+                if line.strip() == "XSZC_UI_READY_FOR_PHOTO_CHANGE" and imported is None:
+                    # Keep draining XCTest output while PhotoKit imports the fixture.
+                    imported = imports.submit(import_photo)
+            if imported is not None:
+                imported.result()
             return test.wait()
         except BaseException:
             test.terminate()

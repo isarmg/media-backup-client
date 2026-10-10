@@ -173,6 +173,7 @@ class GalleryNavigationInstrumentedTest {
         compose.waitUntil(5_000) { compose.onAllNodesWithContentDescription("播放").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("video.close").performClick()
         compose.onNodeWithTag("video.preview").assertDoesNotExist()
+        compose.onNodeWithTag("gallery.grid").performScrollToIndex(0)
         compose.onNodeWithText("已选 1 项").assertIsDisplayed()
     }
 
