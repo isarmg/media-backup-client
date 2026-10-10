@@ -398,6 +398,28 @@ final class BackupCoordinator: ObservableObject {
             await refreshLibrary()
         } catch { status = error.localizedDescription }
     }
+    static func checkUploadBudget(_ processed: Int) throws {
+        guard processed < 60 else { throw CoordinatorFailure.windowComplete }
+    }
+    static func preparePendingUploads(store: TransferStore, checkCurrent: () throws -> Void,
+        drain: () async throws -> Void) async throws {
+        // Re-read after each photo so additions during an upload join this same FIFO queue.
+        while let item = try store.nextPendingUpload() {
+            try checkCurrent()
+            do {
+                guard let descriptor = try JSONSerialization.jsonObject(with: Data(item.source.utf8)) as? [String: Any] else {
+                    throw CoordinatorFailure.message("本地传输项目来源无效")
+                }
+                try await SelectedMedia.prepare(descriptor, store: store, batch: item.batch, item: item.item, drain: drain)
+            } catch CoordinatorFailure.windowComplete {
+                // A run-wide budget is not an asset failure. Keep this item pending so
+                // the next run links completed originals and prepares the remainder.
+                throw CoordinatorFailure.windowComplete
+            } catch {
+                try store.setItem(batch: item.batch, item: item.item, state: "blocked", error: error.localizedDescription)
+            }
+        }
+    }
     @discardableResult
     func runBackup(automatic: Bool = false) async -> Bool {
         guard !running else { return false }
@@ -433,7 +455,7 @@ final class BackupCoordinator: ObservableObject {
                     }.value
                     guard let job = next else { break }
                     try checkCurrent()
-                    guard processed < 60 else { throw CoordinatorFailure.message("本轮处理完成，等待系统继续调度") }
+                    try Self.checkUploadBudget(processed)
                     status = "正在上传：\(job.request.filename)"
                     activeUploadJobID = job.jobId; uploadProgress = [:]
                     refreshTransfers()
@@ -471,18 +493,7 @@ final class BackupCoordinator: ObservableObject {
                 }
             }
             try await drain()
-            // Re-read after each photo so additions during an upload join this same FIFO queue.
-            while let item = try store.nextPendingUpload() {
-                try checkCurrent()
-                do {
-                    guard let descriptor = try JSONSerialization.jsonObject(with: Data(item.source.utf8)) as? [String: Any] else {
-                        throw CoordinatorFailure.message("本地传输项目来源无效")
-                    }
-                    try await SelectedMedia.prepare(descriptor, store: store, batch: item.batch, item: item.item, drain: drain)
-                } catch {
-                    try store.setItem(batch: item.batch, item: item.item, state: "blocked", error: error.localizedDescription)
-                }
-            }
+            try await Self.preparePendingUploads(store: store, checkCurrent: checkCurrent, drain: drain)
             if automatic && MobileContractV1.preferences.bool(forKey: "auto_backup") {
                 let access = PHPhotoLibrary.authorizationStatus(for: .readWrite)
                 guard access == .authorized || access == .limited else { throw CoordinatorFailure.message("自动扫描需要重新授权访问") }
@@ -538,5 +549,11 @@ final class BackupCoordinator: ObservableObject {
 
 enum CoordinatorFailure: LocalizedError {
     case message(String)
-    var errorDescription: String? { switch self { case .message(let value): value } }
+    case windowComplete
+    var errorDescription: String? {
+        switch self {
+        case .message(let value): value
+        case .windowComplete: "本轮处理完成，等待系统继续调度"
+        }
+    }
 }
