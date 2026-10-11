@@ -35,7 +35,27 @@ final class NavigationTests: XCTestCase {
         XCTAssertTrue(progress.exists)
         progress.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         let seeked = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value BEGINSWITH %@", "00:06"), object: progress)
-        XCTAssertEqual(XCTWaiter.wait(for: [seeked], timeout: 5), .completed)
+        let seekResult = XCTWaiter.wait(for: [seeked], timeout: 5)
+        if seekResult != .completed {
+            // Capture the failed observation before continueAfterFailure stops
+            // the test. The displayed target alone does not prove AVPlayer sought.
+            screenshot("video-seek-timeout")
+            let progressExists = progress.exists
+            let details = [
+                "Expected progress value beginning 00:06 after the midpoint tap",
+                "Progress exists: \(progressExists)",
+                "Progress value: \(progressExists ? String(describing: progress.value) : "missing")",
+                "Progress frame: \(progressExists ? String(describing: progress.frame) : "missing")",
+                "Visible time labels: \(preview.staticTexts.allElementsBoundByIndex.map(\.label).filter { $0.contains(":") })",
+                "Preview: \(preview.debugDescription)",
+            ].joined(separator: "\n")
+            print("XSZC_UI_VIDEO_SEEK_TIMEOUT\n\(details)")
+            let diagnostic = XCTAttachment(string: details)
+            diagnostic.name = "video-seek-timeout-details"
+            diagnostic.lifetime = .keepAlways
+            add(diagnostic)
+        }
+        XCTAssertEqual(seekResult, .completed)
         screenshot("video-fullscreen-paused")
         // Keep the 1.5x selection/paused checks above separate from the
         // auto-hide interaction. The 12s fixture ends after only 8s at 1.5x;
