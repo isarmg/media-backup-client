@@ -140,8 +140,8 @@ struct VideoPlayback: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var controls = true
     @State private var speedMenu = false
-    @State private var seeking = false
-    @State private var seekPosition = 0.0
+    @GestureState private var seekPosition: Double? = nil
+    private var seeking: Bool { seekPosition != nil }
     private var autoHideKey: String { "\(model.playing)-\(controls)-\(seeking)-\(speedMenu)" }
 
     var body: some View {
@@ -213,11 +213,11 @@ struct VideoPlayback: View {
 
     private var transport: some View {
         VStack(spacing: 0) {
-            VideoScrubber(position: seeking ? seekPosition : model.position, duration: model.duration, buffered: model.buffered,
-                onChange: { seeking = true; seekPosition = $0 }, onCommit: { model.seek($0); seeking = false })
+            VideoScrubber(position: seekPosition ?? model.position, duration: model.duration, buffered: model.buffered,
+                dragPosition: $seekPosition, onCommit: { model.seek($0) })
                 .disabled(model.duration <= 0 || model.failed)
             HStack(spacing: 0) {
-                Text(videoTime(seeking ? seekPosition : model.position)).foregroundStyle(.white)
+                Text(videoTime(seekPosition ?? model.position)).foregroundStyle(.white)
                 Text(" / \(videoTime(model.duration))").foregroundStyle(.white.opacity(0.55))
                 Spacer()
                 Button { speedMenu = true } label: {
@@ -261,7 +261,7 @@ private struct VideoScrubber: View {
     let position: Double
     let duration: Double
     let buffered: Double
-    let onChange: (Double) -> Void
+    let dragPosition: GestureState<Double?>
     let onCommit: (Double) -> Void
     private func fraction(_ time: Double) -> CGFloat { CGFloat(min(1, max(0, time / (duration > 0 ? duration : 1)))) }
     var body: some View {
@@ -276,7 +276,9 @@ private struct VideoScrubber: View {
             .frame(width: width, height: 44).padding(.horizontal, 6)
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0)
-                .onChanged { value in onChange(Double(min(1, max(0, (value.location.x - 6) / width))) * duration) }
+                .updating(dragPosition) { value, state, _ in
+                    state = Double(min(1, max(0, (value.location.x - 6) / width))) * duration
+                }
                 .onEnded { value in onCommit(Double(min(1, max(0, (value.location.x - 6) / width))) * duration) })
         }
         .frame(height: 44)
